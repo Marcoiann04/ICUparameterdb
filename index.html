@@ -2,14 +2,14 @@
 <html>
 <head>
   <title>Estrazione Parametri Vitali</title>
-  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
   <style>
     body { font-family: Arial; padding: 20px; }
     table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
     th { background: #f0f0f0; }
-    input[type="file"] { margin-bottom: 10px; }
+    input[type=\"file\"] { margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -17,6 +17,7 @@
 <h2>Estrazione Parametri Vitali da Immagine</h2>
 <input type="file" id="imageInput" accept="image/*"><br>
 <button onclick="estraiDati()">Estrai e Mostra</button>
+<p id="loading" style="color: green;"></p>
 <table id="resultsTable" style="margin-top: 20px;"></table>
 <br>
 <button onclick="salvaSuFirestore()">Salva su Firestore</button>
@@ -31,7 +32,7 @@
     messagingSenderId: "967179535774",
     appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
   };
-  const app = firebase.initializeApp(firebaseConfig);
+  firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
   const parametri = [
@@ -42,35 +43,53 @@
 
   async function estraiDati() {
     const file = document.getElementById("imageInput").files[0];
-    if (!file) return alert("Seleziona un'immagine");
-
-    const { data: { text } } = await Tesseract.recognize(file, 'eng');
-    const righe = text.split("\n").map(r => r.trim()).filter(r => r.length > 0);
-
-    const numeriEstratti = righe
-      .map(r => r.match(/\d+([.,]\d+)?/g)) // trova numeri
-      .flat()
-      .filter(Boolean);
-
-    // Applichiamo regola di salto righe e associamo solo ai parametri attesi
-    const valoriPuliti = numeriEstratti.slice(0, 11); // 11 parametri in ordine
-
+    const loading = document.getElementById("loading");
     const table = document.getElementById("resultsTable");
-    table.innerHTML = "<tr><th>Parametro</th><th>Valore</th></tr>";
 
-    parametri.forEach((nome, i) => {
-      const valore = valoriPuliti[i] ?? "";
-      table.innerHTML += `<tr>
-        <td>${nome}</td>
-        <td><input id="valore-${i}" value="${valore}" /></td>
-      </tr>`;
-    });
+    if (!file) {
+      alert("Seleziona un'immagine.");
+      return;
+    }
+
+    loading.innerText = "Elaborazione OCR in corso...";
+
+    try {
+      const result = await Tesseract.recognize(file, 'eng', {
+        logger: m => console.log(m)
+      });
+
+      const text = result.data.text;
+      console.log("Testo OCR:", text);
+
+      const righe = text.split("\n").map(r => r.trim()).filter(r => r.length > 0);
+      const numeriEstratti = righe
+        .map(r => r.match(/\\d+(?:[.,]\\d+)?/g))
+        .flat()
+        .filter(Boolean);
+
+      const valoriPuliti = numeriEstratti.slice(0, 11);
+
+      table.innerHTML = "<tr><th>Parametro</th><th>Valore</th></tr>";
+      parametri.forEach((nome, i) => {
+        const valore = valoriPuliti[i] ?? "";
+        table.innerHTML += \`<tr>
+          <td>\${nome}</td>
+          <td><input id="valore-\${i}" value="\${valore}" /></td>
+        </tr>\`;
+      });
+
+      loading.innerText = "";
+    } catch (err) {
+      console.error("Errore OCR:", err);
+      alert("Errore durante l'OCR. Vedi console.");
+      loading.innerText = "";
+    }
   }
 
   async function salvaSuFirestore() {
     const dati = {};
     parametri.forEach((nome, i) => {
-      dati[nome] = document.getElementById(`valore-${i}`).value;
+      dati[nome] = document.getElementById(\`valore-\${i}\`)?.value ?? "";
     });
 
     try {
@@ -85,6 +104,5 @@
 
 </body>
 </html>
-
 
 
