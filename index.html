@@ -1,84 +1,90 @@
 <!DOCTYPE html>
-<html lang="it">
+<html>
 <head>
-  <meta charset="UTF-8">
   <title>Estrazione Parametri Vitali</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
   <style>
-    body { font-family: Arial; padding: 20px; max-width: 800px; margin: auto; }
-    textarea, input[type="text"] { width: 100%; margin-top: 10px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .parametri { margin-top: 20px; }
-    .button { margin-top: 15px; padding: 10px; background: #2a7; color: white; border: none; cursor: pointer; }
+    body { font-family: Arial; padding: 20px; }
+    table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
+    th { background: #f0f0f0; }
+    input[type="file"] { margin-bottom: 10px; }
   </style>
 </head>
 <body>
-  <h2>Estrazione Parametri da Immagine</h2>
 
-  <input type="file" id="imageInput" accept="image/*">
-  <button class="button" onclick="estraiTesto()">Estrai parametri</button>
+<h2>Estrazione Parametri Vitali da Immagine</h2>
+<input type="file" id="imageInput" accept="image/*"><br>
+<button onclick="estraiDati()">Estrai e Mostra</button>
+<table id="resultsTable" style="margin-top: 20px;"></table>
+<br>
+<button onclick="salvaSuFirestore()">Salva su Firestore</button>
 
-  <h3>Testo estratto:</h3>
-  <textarea id="outputOCR" rows="10"></textarea>
+<script>
+  // Firebase config
+  const firebaseConfig = {
+    apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
+    authDomain: "icuparameters.firebaseapp.com",
+    projectId: "icuparameters",
+    storageBucket: "icuparameters.appspot.com",
+    messagingSenderId: "967179535774",
+    appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
+  };
+  const app = firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
 
-  <h3>Valori corretti (incolla da Excel):</h3>
-  <textarea id="valoriCorretti" rows="10" placeholder="Incolla qui i valori veri in ordine..."></textarea>
+  const parametri = [
+    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
+    "PAP Max", "PAP Min", "PAP Media",
+    "Temperatura", "Sat O2", "Diuresi oraria"
+  ];
 
-  <button class="button" onclick="salvaNelDatabase()">Salva per apprendimento</button>
+  async function estraiDati() {
+    const file = document.getElementById("imageInput").files[0];
+    if (!file) return alert("Seleziona un'immagine");
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    const { data: { text } } = await Tesseract.recognize(file, 'eng');
+    const righe = text.split("\n").map(r => r.trim()).filter(r => r.length > 0);
 
-    const firebaseConfig = {
-      apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
-      authDomain: "icuparameters.firebaseapp.com",
-      projectId: "icuparameters",
-      storageBucket: "icuparameters.appspot.com",
-      messagingSenderId: "967179535774",
-      appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
-    };
+    const numeriEstratti = righe
+      .map(r => r.match(/\d+([.,]\d+)?/g)) // trova numeri
+      .flat()
+      .filter(Boolean);
 
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
+    // Applichiamo regola di salto righe e associamo solo ai parametri attesi
+    const valoriPuliti = numeriEstratti.slice(0, 11); // 11 parametri in ordine
 
-    window.estraiTesto = () => {
-      const imageInput = document.getElementById('imageInput');
-      const outputOCR = document.getElementById('outputOCR');
+    const table = document.getElementById("resultsTable");
+    table.innerHTML = "<tr><th>Parametro</th><th>Valore</th></tr>";
 
-      if (!imageInput.files[0]) return alert("Seleziona un'immagine");
+    parametri.forEach((nome, i) => {
+      const valore = valoriPuliti[i] ?? "";
+      table.innerHTML += `<tr>
+        <td>${nome}</td>
+        <td><input id="valore-${i}" value="${valore}" /></td>
+      </tr>`;
+    });
+  }
 
-      Tesseract.recognize(
-        imageInput.files[0],
-        'eng',
-        { logger: m => console.log(m) }
-      ).then(({ data: { text } }) => {
-        outputOCR.value = text;
-      });
-    };
+  async function salvaSuFirestore() {
+    const dati = {};
+    parametri.forEach((nome, i) => {
+      dati[nome] = document.getElementById(`valore-${i}`).value;
+    });
 
-    window.salvaNelDatabase = async () => {
-      const testoOCR = document.getElementById('outputOCR').value;
-      const valoriCorretti = document.getElementById('valoriCorretti').value;
+    try {
+      await db.collection("esempi_corretti").add(dati);
+      alert("Dati salvati correttamente in Firestore!");
+    } catch (e) {
+      console.error("Errore nel salvataggio:", e);
+      alert("Errore nel salvataggio. Controlla la console.");
+    }
+  }
+</script>
 
-      if (!testoOCR.trim() || !valoriCorretti.trim()) {
-        return alert("Compila entrambi i campi");
-      }
-
-      try {
-        await addDoc(collection(db, "campioni"), {
-          ocr: testoOCR,
-          corretti: valoriCorretti,
-          timestamp: new Date()
-        });
-        alert("Dati salvati per l'apprendimento");
-      } catch (e) {
-        console.error("Errore nel salvataggio:", e);
-        alert("Errore nel salvataggio dei dati");
-      }
-    };
-  </script>
 </body>
 </html>
+
 
 
