@@ -2,284 +2,40 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8" />
-<title>Estrazione e training incrementale dati tabella</title>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  textarea { width: 100%; height: 120px; font-family: monospace; }
-  table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-  th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
-  input[type="text"] { width: 100%; box-sizing: border-box; }
-  button { margin-top: 10px; margin-right: 10px; padding: 6px 12px; }
-  #examplesList { max-height: 200px; overflow-y: auto; border: 1px solid #ccc; padding: 6px; margin-top: 10px; }
-  .example-item { border-bottom: 1px solid #ddd; padding: 6px 0; cursor: pointer; }
-  .example-item:hover { background-color: #eef; }
-  #outputData input { width: 90px; }
-</style>
+<title>OCR + Estrazione dati</title>
 </head>
 <body>
+  <h1>Upload immagine per estrazione dati</h1>
+  <input type="file" id="fileInput" />
+  <button id="uploadBtn">Estrai dati</button>
+  <pre id="result"></pre>
 
-<h1>Estrazione tabella da testo OCR (training incrementale)</h1>
+  <script>
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
+    const resultEl = document.getElementById('result');
 
-<label><b>Carica immagine (solo per riferimento, non elaborata):</b></label><br />
-<input type="file" id="imageInput" accept="image/*"><br /><br />
-<img id="loadedImage" alt="Immagine caricata" style="max-width:300px; max-height:200px; display:none; margin-bottom: 15px;"><br />
+    uploadBtn.onclick = async () => {
+      if (!fileInput.files.length) return alert('Seleziona un file');
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('image', file);
 
-<label><b>Incolla qui il testo OCR della tabella:</b></label><br />
-<textarea id="ocrText" placeholder="Incolla qui il testo OCR estratto dalla tabella..."></textarea><br />
+      resultEl.textContent = 'Elaborazione...';
 
-<button id="extractBtn">Estrai dati</button>
-<button id="clearBtn">Pulisci tutto</button>
+      const response = await fetch('http://localhost:3000/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
 
-<h2>Dati estratti e da correggere (modifica se serve)</h2>
-<table id="outputData">
-<thead>
-<tr>
-  <th>Parametro</th>
-  <th>Valore</th>
-</tr>
-</thead>
-<tbody>
-</tbody>
-</table>
-
-<button id="saveExampleBtn" disabled>Salva esempio per training</button>
-
-<h2>Esempi salvati per training</h2>
-<div id="examplesList">
-  <p><i>Nessun esempio salvato.</i></p>
-</div>
-
-<script>
-// Parametri nell'ordine e come si aspettano
-const PARAMETERS = [
-  "PA_sist+diast",
-  "MAP",
-  "Fc Ritmo",
-  "PVC",
-  "PAP_max",
-  "PAP_min",
-  "PAP_media",
-  "T Perif/Int",
-  "Sat O2",
-  "Diuresi oraria"
-];
-
-// Funzione per estrarre i dati dal testo OCR, basata su righe fisse (in ordine)
-// Accetta testo OCR multilinea, restituisce oggetto {param: valore}
-function estraiDatiDaTestoOCR(text) {
-  // Split righe ignorando vuote
-  const righe = text.split(/\r?\n/).map(r => r.trim()).filter(r => r.length>0);
-  
-  // Qui assumiamo che le righe seguano esattamente l'ordine:
-  // 0 = PA (sist+diast in 1 cella tipo "13380")
-  // 1 = MAP
-  // 2 = Fc Ritmo
-  // 3 = PVC
-  // 4,5,6 = PAP max, min, media
-  // 7 = T Perif/Int
-  // 8 = Sat O2
-  // (9-12 saltate)
-  // 13 = Diuresi oraria
-  
-  let data = {};
-  
-  if(righe.length<14) {
-    alert("Testo OCR sembra incompleto, servono almeno 14 righe (contate: "+righe.length+")");
-    return null;
-  }
-  
-  // Per ogni riga, estraiamo i valori numerici da riga (potrebbero esserci più valori, prendiamo il primo o secondo a seconda)
-  function estraiNumeri(riga) {
-    // Estrae numeri anche con virgola e punti decimali
-    let nums = riga.match(/[\d,.]+/g);
-    if(!nums) return [];
-    return nums.map(n => n.replace(',', '.')).map(Number).filter(n => !isNaN(n));
-  }
-  
-  // PA_sist+diast: tipicamente due valori vicini, unisci in formato "sist/diast"
-  let paNums = estraiNumeri(righe[0]);
-  if(paNums.length>=2) {
-    data["PA_sist+diast"] = paNums[0]+"/"+paNums[1];
-  } else if(paNums.length===1) {
-    data["PA_sist+diast"] = paNums[0];
-  } else {
-    data["PA_sist+diast"] = "";
-  }
-  
-  // MAP
-  let mapNums = estraiNumeri(righe[1]);
-  data["MAP"] = mapNums.length>0 ? mapNums[0] : "";
-  
-  // Fc Ritmo
-  let fcNums = estraiNumeri(righe[2]);
-  data["Fc Ritmo"] = fcNums.length>0 ? fcNums[0] : "";
-  
-  // PVC
-  let pvcNums = estraiNumeri(righe[3]);
-  data["PVC"] = pvcNums.length>0 ? pvcNums[0] : "";
-  
-  // PAP max, min, media (3 righe)
-  for(let i=0; i<3; i++) {
-    let papNums = estraiNumeri(righe[4+i]);
-    data[PARAMETERS[4+i]] = papNums.length>0 ? papNums[0] : "";
-  }
-  
-  // T Perif/Int
-  let tNums = estraiNumeri(righe[7]);
-  data["T Perif/Int"] = tNums.length>0 ? tNums[0] : "";
-  
-  // Sat O2
-  let spo2Nums = estraiNumeri(righe[8]);
-  data["Sat O2"] = spo2Nums.length>0 ? spo2Nums[0] : "";
-  
-  // Diuresi oraria (righe[13])
-  let diuresiNums = estraiNumeri(righe[13]);
-  data["Diuresi oraria"] = diuresiNums.length>0 ? diuresiNums[0] : "";
-  
-  return data;
-}
-
-// Funzione per mostrare i dati estratti in tabella modificabile
-function mostraDati(data) {
-  const tbody = document.querySelector("#outputData tbody");
-  tbody.innerHTML = "";
-  for(let p of PARAMETERS) {
-    let tr = document.createElement("tr");
-    let tdParam = document.createElement("td");
-    tdParam.textContent = p;
-    let tdVal = document.createElement("td");
-    let input = document.createElement("input");
-    input.type = "text";
-    input.value = data[p] !== undefined ? data[p] : "";
-    input.dataset.param = p;
-    tdVal.appendChild(input);
-    tr.appendChild(tdParam);
-    tr.appendChild(tdVal);
-    tbody.appendChild(tr);
-  }
-}
-
-// Funzione per leggere i dati dalla tabella modificabile
-function leggiDatiDaTabella() {
-  let data = {};
-  document.querySelectorAll("#outputData tbody input").forEach(inp=>{
-    data[inp.dataset.param] = inp.value.trim();
-  });
-  return data;
-}
-
-// Salva un esempio nel localStorage, struttura: [{ocrText, data}]
-function salvaEsempio(ocrText, data) {
-  let esempi = JSON.parse(localStorage.getItem("esempiOCR")) || [];
-  esempi.push({ocrText, data});
-  localStorage.setItem("esempiOCR", JSON.stringify(esempi));
-  alert("Esempio salvato, esempi totali: " + esempi.length);
-  aggiornaListaEsempi();
-  document.getElementById("saveExampleBtn").disabled = true;
-}
-
-// Carica esempi e mostra lista
-function aggiornaListaEsempi() {
-  let container = document.getElementById("examplesList");
-  let esempi = JSON.parse(localStorage.getItem("esempiOCR")) || [];
-  if(esempi.length === 0) {
-    container.innerHTML = "<p><i>Nessun esempio salvato.</i></p>";
-    return;
-  }
-  container.innerHTML = "";
-  esempi.forEach((e, i) => {
-    let div = document.createElement("div");
-    div.className = "example-item";
-    div.textContent = "Esempio #" + (i+1) + " - OCR preview: " + e.ocrText.slice(0,40).replace(/\n/g,' ') + "...";
-    div.title = "Clicca per caricare questo esempio";
-    div.onclick = () => {
-      document.getElementById("ocrText").value = e.ocrText;
-      mostraDati(e.data);
-      document.getElementById("saveExampleBtn").disabled = true;
+      if(data.error){
+        resultEl.textContent = 'Errore: ' + data.error;
+      } else {
+        // Visualizza testo OCR raw (poi si fa parsing)
+        resultEl.textContent = data.text;
+      }
     };
-    container.appendChild(div);
-  });
-}
-
-// Funzione di "similarità" base tra due testi OCR (qui semplice conteggio parole comuni)
-function similaritaTesti(t1, t2) {
-  if(!t1 || !t2) return 0;
-  let w1 = t1.toLowerCase().match(/\w+/g) || [];
-  let w2 = t2.toLowerCase().match(/\w+/g) || [];
-  let set2 = new Set(w2);
-  let count = 0;
-  for(let w of w1) if(set2.has(w)) count++;
-  return count / Math.max(w1.length, w2.length);
-}
-
-// Suggerisce i dati basandosi su esempio più simile trovato nel training set
-function suggerisciDati(ocrText) {
-  let esempi = JSON.parse(localStorage.getItem("esempiOCR")) || [];
-  if(esempi.length === 0) return null;
-  let bestScore = 0;
-  let bestExample = null;
-  for(let e of esempi) {
-    let score = similaritaTesti(ocrText, e.ocrText);
-    if(score > bestScore) {
-      bestScore = score;
-      bestExample = e;
-    }
-  }
-  // Se la similarità è bassa non suggeriamo nulla
-  if(bestScore < 0.3) return null;
-  return bestExample.data;
-}
-
-// Eventi
-document.getElementById("extractBtn").onclick = () => {
-  const testo = document.getElementById("ocrText").value.trim();
-  if(!testo) {
-    alert("Inserisci testo OCR.");
-    return;
-  }
-  // Primo tenta estrazione diretta
-  let dati = estraiDatiDaTestoOCR(testo);
-  if(!dati) return;
-
-  // Prova a suggerire dati dai training salvati
-  let suggeriti = suggerisciDati(testo);
-  if(suggeriti) {
-    // Unisci dati suggeriti (solo dove mancanti)
-    for(let k in suggeriti) {
-      if(!dati[k] || dati[k]==="") dati[k] = suggeriti[k];
-    }
-  }
-  mostraDati(dati);
-  document.getElementById("saveExampleBtn").disabled = false;
-};
-
-document.getElementById("saveExampleBtn").onclick = () => {
-  let testo = document.getElementById("ocrText").value.trim();
-  if(!testo) {
-    alert("Testo OCR vuoto, non posso salvare.");
-    return;
-  }
-  let dati = leggiDatiDaTabella();
-  salvaEsempio(testo, dati);
-};
-
-document.getElementById("clearBtn").onclick = () => {
-  document.getElementById("ocrText").value = "";
-  document.querySelector("#outputData tbody").innerHTML = "";
-  document.getElementById("saveExampleBtn").disabled = true;
-};
-
-document.getElementById("imageInput").onchange = e => {
-  const file = e.target.files[0];
-  if(!file) return;
-  const img = document.getElementById("loadedImage");
-  img.src = URL.createObjectURL(file);
-  img.style.display = "block";
-};
-
-// Carica lista esempi al caricamento pagina
-aggiornaListaEsempi();
-
-</script>
+  </script>
 </body>
 </html>
