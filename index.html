@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione Parametri Vitali OCR con Firebase</title>
+<title>Estrazione Parametri Vitali OCR con correzione manuale</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 
 <!-- Firebase SDK -->
@@ -12,30 +12,46 @@
 
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
-  #output { 
+  #output, #correctInput { 
     margin-top: 20px; 
     font-family: monospace; 
     white-space: pre; 
     border: 1px solid #ccc; 
     padding: 10px; 
     max-width: 600px; 
-    user-select: all; /* permette facile copia */
+    user-select: all; 
     cursor: text;
+  }
+  #correctInput {
+    width: 600px;
+    height: 30px;
+    font-family: monospace;
+    white-space: nowrap;
+    overflow-x: auto;
   }
   #error { color: red; margin-top: 10px; }
   #saveMsg { color: green; margin-top: 10px; }
+  button { margin-top: 10px; }
 </style>
 </head>
 <body>
 
-<h1>Estrazione Parametri Vitali OCR con Firebase</h1>
+<h1>Estrazione Parametri Vitali OCR con correzione manuale</h1>
 
 <input type="file" id="imgInput" accept="image/*" />
-<button id="btnExtract">Estrai e Mostra</button>
-<div id="error"></div>
-<div id="saveMsg"></div>
+<button id="btnExtract">Estrai</button>
 
-<pre id="output"></pre>
+<div id="error"></div>
+
+<h3>Valori OCR estratti (tab separati):</h3>
+<pre id="output" tabindex="0"></pre>
+
+<h3>Inserisci valori corretti (tab separati):</h3>
+<textarea id="correctInput" placeholder="Incolla qui i valori corretti separati da tab" spellcheck="false"></textarea>
+
+<button id="btnSave" disabled>Salva su Firebase</button>
+
+<div id="saveMsg"></div>
 
 <script>
   // Firebase config
@@ -48,7 +64,6 @@
     appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
   };
 
-  // Initialize Firebase
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
@@ -62,12 +77,18 @@
   const btnExtract = document.getElementById('btnExtract');
   const output = document.getElementById('output');
   const errorDiv = document.getElementById('error');
+  const correctInput = document.getElementById('correctInput');
+  const btnSave = document.getElementById('btnSave');
   const saveMsg = document.getElementById('saveMsg');
+
+  let ultimiValoriOCR = [];
 
   btnExtract.addEventListener('click', () => {
     errorDiv.textContent = '';
     saveMsg.textContent = '';
     output.textContent = '';
+    correctInput.value = '';
+    btnSave.disabled = true;
 
     if (!imgInput.files || imgInput.files.length === 0) {
       errorDiv.textContent = 'Seleziona un’immagine prima di procedere.';
@@ -82,7 +103,6 @@
           throw new Error('Testo OCR non rilevato o non valido.');
         }
 
-        // Estrai numeri (con virgola o punto decimale)
         const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
 
         if (!numeri || numeri.length === 0) {
@@ -91,26 +111,11 @@
 
         const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
 
-        // Output valori separati da tabulazione, una riga sola
+        ultimiValoriOCR = valori;
+
         output.textContent = valori.join('\t');
 
-        // Salva su Firebase
-        const docData = { 
-          timestamp: new Date().toISOString(),
-          parametri: {}
-        };
-        for(let i=0; i < parametri.length; i++) {
-          docData.parametri[parametri[i]] = valori[i] || null;
-        }
-
-        db.collection('estrazioni').add(docData)
-          .then(() => {
-            saveMsg.textContent = 'Dati salvati correttamente su Firebase!';
-          })
-          .catch(err => {
-            saveMsg.style.color = 'red';
-            saveMsg.textContent = 'Errore nel salvataggio su Firebase: ' + err.message;
-          });
+        btnSave.disabled = false;
 
       })
       .catch(err => {
@@ -118,8 +123,58 @@
         console.error('Errore OCR:', err);
       });
   });
+
+  btnSave.addEventListener('click', () => {
+    errorDiv.textContent = '';
+    saveMsg.textContent = '';
+
+    if (ultimiValoriOCR.length === 0) {
+      errorDiv.textContent = 'Esegui prima l\'estrazione OCR.';
+      return;
+    }
+
+    // Prendo i valori corretti inseriti dall'utente
+    let correttiRaw = correctInput.value.trim();
+
+    if (!correttiRaw) {
+      errorDiv.textContent = 'Inserisci i valori corretti prima di salvare.';
+      return;
+    }
+
+    const valoriCorretti = correttiRaw.split('\t').map(s => s.trim()).slice(0, parametri.length);
+
+    // Controlla se la quantità corrisponde
+    if (valoriCorretti.length !== parametri.length) {
+      errorDiv.textContent = `Inserisci esattamente ${parametri.length} valori separati da tabulazione.`;
+      return;
+    }
+
+    // Costruisci dati da salvare
+    const docData = {
+      timestamp: new Date().toISOString(),
+      parametri_ocr: {},
+      parametri_corretti: {}
+    };
+
+    for(let i=0; i < parametri.length; i++) {
+      docData.parametri_ocr[parametri[i]] = ultimiValoriOCR[i] || null;
+      docData.parametri_corretti[parametri[i]] = valoriCorretti[i] || null;
+    }
+
+    // Salva su Firebase
+    db.collection('estrazioni').add(docData)
+      .then(() => {
+        saveMsg.textContent = 'Dati OCR e corretti salvati correttamente su Firebase!';
+        btnSave.disabled = true;
+        correctInput.value = '';
+      })
+      .catch(err => {
+        saveMsg.style.color = 'red';
+        saveMsg.textContent = 'Errore nel salvataggio su Firebase: ' + err.message;
+      });
+  });
+
 </script>
 
 </body>
 </html>
-
