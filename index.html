@@ -46,15 +46,18 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
+const data = await response.json();
+console.log("Risposta API:", data);
 
-      const data = await response.json();
+if (data.responses && data.responses[0].fullTextAnnotation) {
+  document.getElementById('resultText').textContent = data.responses[0].fullTextAnnotation.text;
+} else if (data.error) {
+  document.getElementById('resultText').textContent = `Errore API: ${data.error.message}`;
+} else {
+  document.getElementById('resultText').textContent = "Nessun testo rilevato o errore.";
+}
 
-      if(data.responses && data.responses[0].fullTextAnnotation) {
-        document.getElementById('resultText').textContent = data.responses[0].fullTextAnnotation.text;
-      } else {
-        document.getElementById('resultText').textContent = "Nessun testo rilevato o errore.";
-        console.error(data);
-      }
+  
     });
   </script>
 </body>
