@@ -1,113 +1,134 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
-  <title>Estrazione Parametri Vitali - Base</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
-  <style>
-    body { font-family: Arial; padding: 20px; }
-    table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
-    th { background: #f0f0f0; }
-    input[type="file"] { margin-bottom: 10px; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OCR Buoni Mensa</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  table { border-collapse: collapse; margin-top: 20px; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; }
+  th { background-color: #eee; }
+  #output { margin-top: 20px; }
+  #error { color: red; margin-top: 10px; }
+</style>
 </head>
 <body>
 
-<h2>Estrazione Parametri Vitali da Immagine</h2>
-<input type="file" id="imageInput" accept="image/*"><br>
-<button onclick="estraiDati()">Estrai e Mostra</button>
-<p id="loading" style="color: green;"></p>
-<table id="resultsTable" style="margin-top: 20px;">
-  <tr><th>Parametro</th><th>Valore</th></tr>
-</table>
+<h1>OCR Buoni Mensa - Estrazione dati</h1>
+
+<input type="file" id="imgInput" accept="image/*" />
+<button id="btnExtract">Estrai e Mostra</button>
+<div id="error"></div>
+
+<div id="output"></div>
 
 <script>
-  function estraiDati() {
-    const file = document.getElementById("imageInput").files[0];
-    const loading = document.getElementById("loading");
-    const table = document.getElementById("resultsTable");
+  const imgInput = document.getElementById('imgInput');
+  const btnExtract = document.getElementById('btnExtract');
+  const output = document.getElementById('output');
+  const errorDiv = document.getElementById('error');
 
-    if (!file) {
-      alert("Per favore, seleziona un'immagine prima di estrarre.");
+  btnExtract.addEventListener('click', () => {
+    errorDiv.textContent = '';
+    output.innerHTML = '';
+
+    if (!imgInput.files || imgInput.files.length === 0) {
+      errorDiv.textContent = 'Seleziona un’immagine prima di procedere.';
       return;
     }
 
-    loading.innerText = "Elaborazione OCR in corso...";
+    const file = imgInput.files[0];
 
-    Tesseract.recognize(file, 'eng').then(({ data: { text } }) => {
-      console.log("Testo OCR:", text);
+    Tesseract.recognize(file, 'ita')
+      .then(({ data: { text } }) => {
+        if (!text || typeof text !== 'string') {
+          throw new Error('Testo OCR non rilevato o non valido.');
+        }
 
-      const righe = text.split("\n").map(r => r.trim()).filter(r => r.length > 0);
+        // Pulisci il testo estratto (rimuovi spazi in eccesso e righe vuote)
+        const righe = text.split('\n').map(r => r.trim()).filter(r => r.length > 0);
 
-      // Prendiamo numeri da righe selezionate (ad esempio righe 0-4)
-      // Esempio: riga 0 => PA Max/Min (due numeri)
-      //        riga 1 => MAP
-      //        riga 2 => FC Ritmo
-      //        riga 3 => PVC
-      //        riga 4 => PAP (max, min, media)
+        // Parametri da estrarre (ordine righe):
+        // 0: PA (es. "131 132" o "131\n132")
+        // 1: MAP
+        // 2: FC Ritmo
+        // 3: PVC
+        // 4: PAP Max
+        // 5: PAP Min
+        // 6: PAP Media
+        // 7: Temperatura (singolo valore)
+        // 8: Sat O2
+        // 9-12: righe da saltare
+        // 13: Diuresi oraria
 
-      function estraiNumeriDaRiga(riga) {
-        const match = riga.match(/\d+([.,]\d+)?/g);
-        return match ? match.map(x => x.replace(",", ".")) : [];
-      }
+        if (righe.length < 14) {
+          throw new Error('Testo OCR insufficiente per estrazione dati.');
+        }
 
-      const paNumeri = estraiNumeriDaRiga(righe[0]) || [];
-      const paMax = paNumeri[0] || "";
-      const paMin = paNumeri[1] || "";
+        // Funzione di parsing base per split valori numerici da stringhe
+        function parseValori(riga) {
+          // prova a estrarre numeri (con virgola o punto)
+          const matches = riga.match(/[\d.,]+/g);
+          if (!matches) return [];
+          return matches.map(v => v.replace(',', '.'));
+        }
 
-      const mapNumeri = estraiNumeriDaRiga(righe[1]) || [];
-      const map = mapNumeri[0] || "";
+        // Estrazione PA (max e min) nella stessa riga o separate
+        let paMax = '';
+        let paMin = '';
+        const paValori = parseValori(righe[0]);
+        if (paValori.length >= 2) {
+          paMax = paValori[0];
+          paMin = paValori[1];
+        } else if (righe.length > 1) {
+          // se non in prima riga, prova seconda riga
+          const paValori2 = parseValori(righe[1]);
+          if (paValori2.length >= 1) {
+            paMin = paValori2[0];
+          }
+        }
 
-      const fcNumeri = estraiNumeriDaRiga(righe[2]) || [];
-      const fc = fcNumeri[0] || "";
+        const map = parseValori(righe[1])[0] || '';
+        const fcRitmo = parseValori(righe[2])[0] || '';
+        const pvc = parseValori(righe[3])[0] || '';
+        const papMax = parseValori(righe[4])[0] || '';
+        const papMin = parseValori(righe[5])[0] || '';
+        const papMedia = parseValori(righe[6])[0] || '';
+        const temperatura = parseValori(righe[7])[0] || '';
+        const satO2 = parseValori(righe[8])[0] || '';
+        const diuresi = parseValori(righe[13])[0] || '';
 
-      const pvcNumeri = estraiNumeriDaRiga(righe[3]) || [];
-      const pvc = pvcNumeri[0] || "";
-
-      const papNumeri = estraiNumeriDaRiga(righe[4]) || [];
-      const papMax = papNumeri[0] || "";
-      const papMin = papNumeri[1] || "";
-      const papMedia = papNumeri[2] || "";
-
-      // Saltare 4 righe: quindi temperatura e sat O2 sono righe 9 e 10 (adattare se serve)
-      const tempNumeri = estraiNumeriDaRiga(righe[9]) || [];
-      const temperatura = tempNumeri[0] || "";
-
-      const satNumeri = estraiNumeriDaRiga(righe[10]) || [];
-      const satO2 = satNumeri[0] || "";
-
-      // Diuresi oraria presumiamo sia ultima riga utile (adattare se serve)
-      const diuresiNumeri = estraiNumeriDaRiga(righe[righe.length - 1]) || [];
-      const diuresi = diuresiNumeri[0] || "";
-
-      // Aggiorna tabella
-      const parametri = [
-        ["PA Max", paMax],
-        ["PA Min", paMin],
-        ["MAP", map],
-        ["FC Ritmo", fc],
-        ["PVC", pvc],
-        ["PAP Max", papMax],
-        ["PAP Min", papMin],
-        ["PAP Media", papMedia],
-        ["Temperatura", temperatura],
-        ["Sat O2", satO2],
-        ["Diuresi oraria", diuresi],
-      ];
-
-      table.innerHTML = "<tr><th>Parametro</th><th>Valore</th></tr>";
-      parametri.forEach(([nome, valore]) => {
-        table.innerHTML += `<tr><td>${nome}</td><td>${valore}</td></tr>`;
+        // Mostra i dati in tabella
+        output.innerHTML = `
+          <table>
+            <thead>
+              <tr><th>Parametro</th><th>Valore</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>PA Max</td><td>${paMax}</td></tr>
+              <tr><td>PA Min</td><td>${paMin}</td></tr>
+              <tr><td>MAP</td><td>${map}</td></tr>
+              <tr><td>FC Ritmo</td><td>${fcRitmo}</td></tr>
+              <tr><td>PVC</td><td>${pvc}</td></tr>
+              <tr><td>PAP Max</td><td>${papMax}</td></tr>
+              <tr><td>PAP Min</td><td>${papMin}</td></tr>
+              <tr><td>PAP Media</td><td>${papMedia}</td></tr>
+              <tr><td>Temperatura</td><td>${temperatura}</td></tr>
+              <tr><td>Sat O2</td><td>${satO2}</td></tr>
+              <tr><td>Diuresi oraria</td><td>${diuresi}</td></tr>
+            </tbody>
+          </table>
+        `;
+      })
+      .catch(err => {
+        errorDiv.textContent = 'Errore durante l\'OCR: ' + err.message;
+        console.error('Errore OCR:', err);
       });
-
-      loading.innerText = "";
-    }).catch(err => {
-      console.error("Errore OCR:", err);
-      alert("Errore durante l'OCR. Controlla la console.");
-      loading.innerText = "";
-    });
-  }
+  });
 </script>
-
 
 </body>
 </html>
+
