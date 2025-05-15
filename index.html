@@ -1,88 +1,82 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Estrazione parametri vitali da immagine</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+  <meta charset="UTF-8">
+  <title>Estrazione Parametri Vitali</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.1/dist/tesseract.min.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-    }
-    textarea {
-      width: 100%;
-      height: 100px;
-    }
-    .output {
-      white-space: pre-wrap;
-      background-color: #f3f3f3;
-      padding: 10px;
-      border: 1px solid #ccc;
-      margin-top: 10px;
-    }
-    .highlight {
-      font-weight: bold;
-    }
+    body { font-family: Arial; padding: 20px; max-width: 800px; margin: auto; }
+    textarea, input[type="text"] { width: 100%; margin-top: 10px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .parametri { margin-top: 20px; }
+    .button { margin-top: 15px; padding: 10px; background: #2a7; color: white; border: none; cursor: pointer; }
   </style>
 </head>
 <body>
-  <h1>Estrazione parametri vitali da immagine</h1>
+  <h2>Estrazione Parametri da Immagine</h2>
+
   <input type="file" id="imageInput" accept="image/*">
-  <button onclick="extractText()">Estrai parametri</button>
+  <button class="button" onclick="estraiTesto()">Estrai parametri</button>
 
-  <div class="output" id="output"></div>
+  <h3>Testo estratto:</h3>
+  <textarea id="outputOCR" rows="10"></textarea>
 
-  <script>
-    async function extractText() {
-      const image = document.getElementById('imageInput').files[0];
-      if (!image) {
-        alert("Carica un'immagine prima!");
-        return;
+  <h3>Valori corretti (incolla da Excel):</h3>
+  <textarea id="valoriCorretti" rows="10" placeholder="Incolla qui i valori veri in ordine..."></textarea>
+
+  <button class="button" onclick="salvaNelDatabase()">Salva per apprendimento</button>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
+      authDomain: "icuparameters.firebaseapp.com",
+      projectId: "icuparameters",
+      storageBucket: "icuparameters.appspot.com",
+      messagingSenderId: "967179535774",
+      appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    window.estraiTesto = () => {
+      const imageInput = document.getElementById('imageInput');
+      const outputOCR = document.getElementById('outputOCR');
+
+      if (!imageInput.files[0]) return alert("Seleziona un'immagine");
+
+      Tesseract.recognize(
+        imageInput.files[0],
+        'eng',
+        { logger: m => console.log(m) }
+      ).then(({ data: { text } }) => {
+        outputOCR.value = text;
+      });
+    };
+
+    window.salvaNelDatabase = async () => {
+      const testoOCR = document.getElementById('outputOCR').value;
+      const valoriCorretti = document.getElementById('valoriCorretti').value;
+
+      if (!testoOCR.trim() || !valoriCorretti.trim()) {
+        return alert("Compila entrambi i campi");
       }
 
-      document.getElementById('output').textContent = "Estrazione in corso...";
-
-      const result = await Tesseract.recognize(image, 'eng', {
-        logger: m => console.log(m)
-      });
-
-      const text = result.data.text;
-
-      // Elabora il testo per estrarre i parametri
-      const righe = text.split('\n').map(r => r.trim()).filter(r => r.length > 0);
-
-      // Prende le righe utili: primi 8 blocchi (PA fino a SatO2), salta 4, poi Diuresi
-      const parametriUtili = [
-        righe[0] || '',  // PA
-        righe[1] || '',  // MAP
-        righe[2] || '',  // FC Ritmo
-        righe[3] || '',  // PVC
-        righe[4] || '',  // PAP max
-        righe[5] || '',  // PAP min
-        righe[6] || '',  // PAP media
-        righe[7] || '',  // Temperatura
-        righe[12] || '', // Sat O2
-        righe[17] || '', // Diuresi oraria (dopo 4 righe da saltare)
-      ];
-
-      // Mostra i risultati in formato Excel-friendly
-      const output = 
-        `Parametro\tValore\n` +
-        `PA Max\t${parametriUtili[0].split('\n')[0] || parametriUtili[0]}\n` +
-        `PA Min\t${parametriUtili[0].split('\n')[1] || ''}\n` +
-        `MAP\t${parametriUtili[1]}\n` +
-        `FC Ritmo\t${parametriUtili[2]}\n` +
-        `PVC\t${parametriUtili[3]}\n` +
-        `PAP Max\t${parametriUtili[4]}\n` +
-        `PAP Min\t${parametriUtili[5]}\n` +
-        `PAP Media\t${parametriUtili[6]}\n` +
-        `Temperatura\t${parametriUtili[7]}\n` +
-        `Sat O2\t${parametriUtili[8]}\n` +
-        `Diuresi oraria\t${parametriUtili[9]}`;
-
-      document.getElementById('output').textContent = output;
-    }
+      try {
+        await addDoc(collection(db, "campioni"), {
+          ocr: testoOCR,
+          corretti: valoriCorretti,
+          timestamp: new Date()
+        });
+        alert("Dati salvati per l'apprendimento");
+      } catch (e) {
+        console.error("Errore nel salvataggio:", e);
+        alert("Errore nel salvataggio dei dati");
+      }
+    };
   </script>
 </body>
 </html>
