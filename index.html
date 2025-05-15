@@ -1,262 +1,91 @@
+
+
+
+
 <!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>OCR Parametri Vitali + Correzione + Firebase</title>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<title>Estrazione Parametri OCR</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 <style>
-  body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 15px; }
-  h1 { text-align: center; }
-  input[type=file] { margin: 10px 0; }
-  button { padding: 8px 15px; margin: 10px 0; }
-  textarea { width: 100%; height: 80px; font-family: monospace; font-size: 14px; }
-  table { border-collapse: collapse; margin-top: 15px; width: 100%; }
-  table, th, td { border: 1px solid #aaa; }
-  th, td { padding: 6px 10px; text-align: left; white-space: pre; }
-  #history { margin-top: 30px; }
-  .entry { border: 1px solid #ccc; padding: 8px; margin-bottom: 15px; }
-  .entry pre { background: #f0f0f0; padding: 5px; overflow-x: auto; }
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  textarea { width: 100%; height: 150px; }
+  pre { background: #f4f4f4; padding: 10px; white-space: pre-wrap; word-wrap: break-word; }
 </style>
 </head>
 <body>
 
-<h1>OCR Parametri Vitali + Correzione + Firebase</h1>
-
+<h2>Carica immagine con parametri</h2>
 <input type="file" id="imageInput" accept="image/*" />
-<button id="startOcrBtn">Estrai testo da immagine</button>
+<button id="startOcr">Estrai e Mostra</button>
 
-<h2>Dati estratti (formattati, tab separati)</h2>
-<table id="extractedTable">
-  <thead>
-    <tr>
-      <th>Parametro</th><th>Valore</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
-
-<h2>Correzione manuale (testo tabulato, copiabile su Excel)</h2>
-<textarea id="manualCorrection" placeholder="Esempio:&#10;PA Max\t131&#10;PA Min\t77&#10;MAP\t101&#10;..."></textarea>
-<button id="saveBtn">Salva dati su Firebase</button>
-
-<h2>Storico dati salvati</h2>
-<div id="history">Caricamento dati...</div>
+<h3>Risultato estrazione</h3>
+<pre id="resultArea">Nessun risultato ancora.</pre>
 
 <script>
-  // --- Firebase config, cambia con la tua ---
-  const firebaseConfig = {
-    apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
-    authDomain: "icuparameters.firebaseapp.com",
-    projectId: "icuparameters",
-    storageBucket: "icuparameters.firebasestorage.app",
-    messagingSenderId: "967179535774",
-    appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
-  };
-
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-
-  const PARAMS = [
-    "PA Max","PA Min","MAP","FC Ritmo","PVC",
-    "PAP Max","PAP Min","PAP Media","Temperatura","Sat O2","Diuresi oraria"
+// Funzione di estrazione parametri dal testo OCR
+function parseOcrText(text) {
+  const keys = [
+    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
+    "PAP Max", "PAP Min", "PAP Media", "Temperatura",
+    "Sat O2", "Diuresi oraria"
   ];
 
-  const imageInput = document.getElementById('imageInput');
-  const startOcrBtn = document.getElementById('startOcrBtn');
-  const extractedTableBody = document.querySelector('#extractedTable tbody');
-  const manualCorrection = document.getElementById('manualCorrection');
-  const saveBtn = document.getElementById('saveBtn');
-  const historyDiv = document.getElementById('history');
+  let lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  let allNumbers = [];
 
-  let lastExtracted = {};
-
-  // Funzione per estrarre dati dal testo OCR in base alla riga (ordine)
-  function parseOcrText(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-  // Inizializza oggetto risultati con empty string
-  let extracted = {
-    "PA Max": "",
-    "PA Min": "",
-    "MAP": "",
-    "FC Ritmo": "",
-    "PVC": "",
-    "PAP Max": "",
-    "PAP Min": "",
-    "PAP Media": "",
-    "Temperatura": "",
-    "Sat O2": "",
-    "Diuresi oraria": ""
-  };
-
-  // Trova righe con numeri per ogni parametro in modo flessibile
-  // Usando il fatto che PA Max/Min stanno insieme in prima riga con almeno 2 numeri
-  for(let i=0, pi=0; i < lines.length && pi < 11; i++) {
-    const line = lines[i];
-    // Estrai tutti i numeri con possibile virgola o punto decimale
-    const nums = line.match(/\d+[\.,]?\d*/g);
-    if(!nums || nums.length === 0) continue;
-
-    switch(pi) {
-      case 0:
-        // PA max e min: prendiamo primi 2 numeri
-        extracted["PA Max"] = nums[0].replace(',', '.');
-        extracted["PA Min"] = nums[1] ? nums[1].replace(',', '.') : "";
-        pi++;
-        break;
-      case 1:
-        extracted["MAP"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 2:
-        extracted["FC Ritmo"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 3:
-        extracted["PVC"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 4:
-        extracted["PAP Max"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 5:
-        extracted["PAP Min"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 6:
-        extracted["PAP Media"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 7:
-        extracted["Temperatura"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 8:
-        extracted["Sat O2"] = nums[0].replace(',', '.');
-        pi++;
-        break;
-      case 9:
-        // Saltiamo 4 righe dopo Sat O2, quindi salta 4 righe a partire da qui
-        // Qui la riga con la diuresi potrebbe essere dopo 4 righe
-        // Quindi saltiamo i= i+4
-        i += 4;
-        break;
-      case 10:
-        extracted["Diuresi oraria"] = nums[0].replace(',', '.');
-        pi++;
-        break;
+  for(let line of lines) {
+    let nums = line.match(/\d+[.,]?\d*/g);
+    if(nums) {
+      nums = nums.map(n => n.replace(',', '.'));
+      allNumbers.push(...nums);
     }
   }
 
-  // Se almeno PA Max e Min sono presenti ritorna extracted, altrimenti null
-  if(extracted["PA Max"] && extracted["PA Min"]) return extracted;
-  return null;
-}
+  if(allNumbers.length < keys.length) return null;
 
-
-  // Mostra dati in tabella formattata
-  function displayExtracted(data) {
-    extractedTableBody.innerHTML = "";
-    for(let p of PARAMS) {
-      let val = data[p] || "";
-      // per copia/incolla Excel aggiungiamo tab in colonna valore
-      let safeVal = val.toString();
-      let row = `<tr><td>${p}</td><td>${safeVal}</td></tr>`;
-      extractedTableBody.insertAdjacentHTML('beforeend', row);
-    }
+  let extracted = {};
+  for(let i=0; i<keys.length; i++) {
+    extracted[keys[i]] = allNumbers[i];
   }
-
-  // OCR start
-  startOcrBtn.onclick = () => {
-    if(!imageInput.files.length) {
-      alert("Seleziona un'immagine prima!");
-      return;
-    }
-    startOcrBtn.disabled = true;
-    startOcrBtn.textContent = "Elaborazione...";
-    Tesseract.recognize(imageInput.files[0], 'ita')
-    .then(({ data: { text } }) => {
-      startOcrBtn.disabled = false;
-      startOcrBtn.textContent = "Estrai testo da immagine";
-      // console.log("OCR text:", text);
-      let parsed = parseOcrText(text);
-      if(parsed) {
-        lastExtracted = parsed;
-        displayExtracted(parsed);
-        // Precompila il campo correzione manuale
-        manualCorrection.value = PARAMS.map(p => p + "\t" + (parsed[p] || "")).
-join("\n");
-} else {
-alert("Non sono riuscito ad estrarre tutti i dati, controlla immagine e testo OCR.");
+  return extracted;
 }
-})
-.catch(e => {
-startOcrBtn.disabled = false;
-startOcrBtn.textContent = "Estrai testo da immagine";
-alert("Errore durante OCR: " + e.message);
+
+function formatExtracted(extracted) {
+  if(!extracted) return "Nessun dato estratto o dati insufficienti.";
+  let header = Object.keys(extracted).join('\t');
+  let values = Object.values(extracted).join('\t');
+  return header + '\n' + values;
+}
+
+document.getElementById('startOcr').addEventListener('click', () => {
+  let fileInput = document.getElementById('imageInput');
+  let resultArea = document.getElementById('resultArea');
+  if(fileInput.files.length === 0) {
+    alert("Seleziona prima un'immagine.");
+    return;
+  }
+  resultArea.textContent = "OCR in corso, attendi...";
+  let file = fileInput.files[0];
+
+  Tesseract.recognize(
+    file,
+    'ita',
+    { logger: m => console.log(m) }
+  ).then(({ data: { text } }) => {
+    console.log("Testo OCR grezzo:", text);
+    let estratto = parseOcrText(text);
+    let output = formatExtracted(estratto);
+    resultArea.textContent = output;
+  }).catch(err => {
+    console.error(err);
+    resultArea.textContent = "Errore durante l'OCR.";
+  });
 });
-};
-
-// Salva su Firebase
-saveBtn.onclick = async () => {
-let manualText = manualCorrection.value.trim();
-if(!manualText) {
-alert("Inserisci dati corretti nella correzione manuale prima di salvare.");
-return;
-}
-// Creiamo JSON da testo manuale (assumendo righe tabulate)
-let lines = manualText.split('\n');
-let corrected = {};
-for(let line of lines) {
-let [k,v] = line.split('\t');
-if(k && v !== undefined) corrected[k.trim()] = v.trim();
-}
-// Salviamo OCR e correzione
-try {
-await db.collection("ocr_data").add({
-timestamp: new Date(),
-ocr: lastExtracted,
-corrected: corrected
-});
-alert("Dati salvati con successo!");
-manualCorrection.value = "";
-extractedTableBody.innerHTML = "";
-lastExtracted = {};
-loadHistory();
-} catch(e) {
-alert("Errore salvataggio dati: " + e.message);
-}
-};
-
-// Carica storico da Firebase
-async function loadHistory() {
-historyDiv.innerHTML = "Caricamento dati...";
-try {
-let snapshot = await db.collection("ocr_data").orderBy("timestamp", "desc").limit(10).get();
-if(snapshot.empty) {
-historyDiv.innerHTML = "<i>Nessun dato salvato ancora.</i>";
-return;
-}
-let html = "";
-snapshot.forEach(doc => {
-let d = doc.data();
-let ts = d.timestamp.toDate().toLocaleString();
-let ocrText = Object.entries(d.ocr||{}).map(([k,v]) => ${k}\t${v}).join("\n");
-let corrText = Object.entries(d.corrected||{}).map(([k,v]) => ${k}\t${v}).join("\n");
-html += <div class="entry"> <b>${ts}</b><br> <b>OCR estratto:</b><pre>${ocrText}</pre> <b>Correzione manuale:</b><pre>${corrText}</pre> </div>;
-});
-historyDiv.innerHTML = html;
-} catch(e) {
-historyDiv.innerHTML = "Errore caricamento storico: " + e.message;
-}
-}
-
-loadHistory();
 </script>
 
-</body> </html>
+</body>
+</html>
 
