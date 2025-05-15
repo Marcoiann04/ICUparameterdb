@@ -1,41 +1,61 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-<meta charset="UTF-8" />
-<title>OCR + Estrazione dati</title>
+  <meta charset="UTF-8" />
+  <title>Test Google Vision API Text Detection</title>
 </head>
 <body>
-  <h1>Upload immagine per estrazione dati</h1>
-  <input type="file" id="fileInput" />
-  <button id="uploadBtn">Estrai dati</button>
-  <pre id="result"></pre>
+  <h1>Carica immagine e ottieni testo con Google Vision API</h1>
+
+  <input type="file" id="fileInput" accept="image/*" />
+  <button id="analyzeBtn">Analizza immagine</button>
+
+  <h2>Risultato testo riconosciuto:</h2>
+  <pre id="resultText" style="background:#eee; padding:10px; white-space: pre-wrap;"></pre>
 
   <script>
-    const uploadBtn = document.getElementById('uploadBtn');
-    const fileInput = document.getElementById('fileInput');
-    const resultEl = document.getElementById('result');
+    const apiKey = "AIzaSyBqx2gLKQVIrBtPH92lkkmh7glhAiLnmRc";
 
-    uploadBtn.onclick = async () => {
-      if (!fileInput.files.length) return alert('Seleziona un file');
-      const file = fileInput.files[0];
-      const formData = new FormData();
-      formData.append('image', file);
+    let base64Image = "";
 
-      resultEl.textContent = 'Elaborazione...';
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return alert("Seleziona un'immagine!");
 
-      const response = await fetch('http://localhost:3000/upload', {
-        method: 'POST',
-        body: formData,
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        base64Image = evt.target.result.split(',')[1]; // togli il prefix
+        console.log("Immagine convertita in base64");
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('analyzeBtn').addEventListener('click', async () => {
+      if (!base64Image) return alert("Carica prima un'immagine!");
+
+      const url = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
+      const body = {
+        requests: [{
+          image: { content: base64Image },
+          features: [{ type: "TEXT_DETECTION" }]
+        }]
+      };
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
       });
+
       const data = await response.json();
 
-      if(data.error){
-        resultEl.textContent = 'Errore: ' + data.error;
+      if(data.responses && data.responses[0].fullTextAnnotation) {
+        document.getElementById('resultText').textContent = data.responses[0].fullTextAnnotation.text;
       } else {
-        // Visualizza testo OCR raw (poi si fa parsing)
-        resultEl.textContent = data.text;
+        document.getElementById('resultText').textContent = "Nessun testo rilevato o errore.";
+        console.error(data);
       }
-    };
+    });
   </script>
 </body>
 </html>
