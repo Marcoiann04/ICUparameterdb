@@ -52,11 +52,19 @@
 <button id="btnSave" disabled>Salva su Firebase</button>
 
 <div id="saveMsg"></div>
+<textarea id="correctInput" rows="3" cols="50" placeholder="Incolla qui i dati corretti separati da tab..."></textarea>
+<button id="btnSendCorrect">Invia Dati Corretti</button>
+
+<div id="ocrOutput" style="white-space: pre-wrap; margin-top: 20px;"></div>
+<div id="message"></div>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 
 <script>
-  // Firebase config
+  // Config Firebase (usa la tua)
   const firebaseConfig = {
-    apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
+ apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
     authDomain: "icuparameters.firebaseapp.com",
     projectId: "icuparameters",
     storageBucket: "icuparameters.firebasestorage.app",
@@ -67,114 +75,44 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
-  const parametri = [
-    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
-    "PAP Max", "PAP Min", "PAP Media", "Temperatura",
-    "Sat O2", "Diuresi oraria"
-  ];
-
-  const imgInput = document.getElementById('imgInput');
-  const btnExtract = document.getElementById('btnExtract');
-  const output = document.getElementById('output');
-  const errorDiv = document.getElementById('error');
+  const btnSendCorrect = document.getElementById('btnSendCorrect');
   const correctInput = document.getElementById('correctInput');
-  const btnSave = document.getElementById('btnSave');
-  const saveMsg = document.getElementById('saveMsg');
+  const ocrOutput = document.getElementById('ocrOutput');
+  const message = document.getElementById('message');
 
-  let ultimiValoriOCR = [];
+  let lastOCRValues = ""; // memorizziamo l'ultima estrazione OCR (stringa tabulata)
 
-  btnExtract.addEventListener('click', () => {
-    errorDiv.textContent = '';
-    saveMsg.textContent = '';
-    output.textContent = '';
-    correctInput.value = '';
-    btnSave.disabled = true;
+  // Supponiamo che qui tu abbia già il codice per fare OCR e popolare lastOCRValues
+  // Per esempio dopo estrazione OCR fai:
+  // lastOCRValues = "131\t77\t101\t80\t3\t...\n";
 
-    if (!imgInput.files || imgInput.files.length === 0) {
-      errorDiv.textContent = 'Seleziona un’immagine prima di procedere.';
+  // Mostra i dati OCR come testo semplice (tabulato)
+  function mostraOCRTesto(valori) {
+    ocrOutput.textContent = valori;
+  }
+
+  btnSendCorrect.addEventListener('click', () => {
+    const datiCorretti = correctInput.value.trim();
+    if (!datiCorretti) {
+      message.textContent = "Inserisci prima i dati corretti.";
       return;
     }
+    // Usa un ID unico, ad esempio timestamp
+    const idDoc = "correzione_" + Date.now();
 
-    const file = imgInput.files[0];
-
-    Tesseract.recognize(file, 'ita')
-      .then(({ data: { text } }) => {
-        if (!text || typeof text !== 'string') {
-          throw new Error('Testo OCR non rilevato o non valido.');
-        }
-
-        const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
-
-        if (!numeri || numeri.length === 0) {
-          throw new Error('Nessun numero trovato nel testo OCR.');
-        }
-
-        const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
-
-        ultimiValoriOCR = valori;
-
-        output.textContent = valori.join('\t');
-
-        btnSave.disabled = false;
-
-      })
-      .catch(err => {
-        errorDiv.textContent = 'Errore durante l\'OCR: ' + err.message;
-        console.error('Errore OCR:', err);
-      });
+    db.collection("dati_corretti").doc(idDoc).set({
+      estrattoOCR: lastOCRValues,
+      datiCorretti: datiCorretti,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
+    }).then(() => {
+      message.textContent = "Dati corretti inviati con successo!";
+      correctInput.value = "";
+    }).catch((error) => {
+      message.textContent = "Errore invio dati corretti: " + error.message;
+    });
   });
-
-  btnSave.addEventListener('click', () => {
-    errorDiv.textContent = '';
-    saveMsg.textContent = '';
-
-    if (ultimiValoriOCR.length === 0) {
-      errorDiv.textContent = 'Esegui prima l\'estrazione OCR.';
-      return;
-    }
-
-    // Prendo i valori corretti inseriti dall'utente
-    let correttiRaw = correctInput.value.trim();
-
-    if (!correttiRaw) {
-      errorDiv.textContent = 'Inserisci i valori corretti prima di salvare.';
-      return;
-    }
-
-    const valoriCorretti = correttiRaw.split('\t').map(s => s.trim()).slice(0, parametri.length);
-
-    // Controlla se la quantità corrisponde
-    if (valoriCorretti.length !== parametri.length) {
-      errorDiv.textContent = `Inserisci esattamente ${parametri.length} valori separati da tabulazione.`;
-      return;
-    }
-
-    // Costruisci dati da salvare
-    const docData = {
-      timestamp: new Date().toISOString(),
-      parametri_ocr: {},
-      parametri_corretti: {}
-    };
-
-    for(let i=0; i < parametri.length; i++) {
-      docData.parametri_ocr[parametri[i]] = ultimiValoriOCR[i] || null;
-      docData.parametri_corretti[parametri[i]] = valoriCorretti[i] || null;
-    }
-
-    // Salva su Firebase
-    db.collection('estrazioni').add(docData)
-      .then(() => {
-        saveMsg.textContent = 'Dati OCR e corretti salvati correttamente su Firebase!';
-        btnSave.disabled = true;
-        correctInput.value = '';
-      })
-      .catch(err => {
-        saveMsg.style.color = 'red';
-        saveMsg.textContent = 'Errore nel salvataggio su Firebase: ' + err.message;
-      });
-  });
-
 </script>
+
 
 </body>
 </html>
