@@ -21,12 +21,6 @@
 </table>
 
 <script>
-  const parametri = [
-    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
-    "PAP Max", "PAP Min", "PAP Media",
-    "Temperatura", "Sat O2", "Diuresi oraria"
-  ];
-
   function estraiDati() {
     const file = document.getElementById("imageInput").files[0];
     const loading = document.getElementById("loading");
@@ -39,26 +33,70 @@
 
     loading.innerText = "Elaborazione OCR in corso...";
 
-    Tesseract.recognize(file, 'eng', {
-      logger: m => console.log(m)
-    }).then(({ data: { text } }) => {
+    Tesseract.recognize(file, 'eng').then(({ data: { text } }) => {
       console.log("Testo OCR:", text);
 
       const righe = text.split("\n").map(r => r.trim()).filter(r => r.length > 0);
-      const numeriEstratti = righe
-        .map(r => r.match(/\d+(?:[.,]\d+)?/g))
-        .flat()
-        .filter(Boolean);
 
-      const valoriPuliti = numeriEstratti.slice(0, 11);
+      // Prendiamo numeri da righe selezionate (ad esempio righe 0-4)
+      // Esempio: riga 0 => PA Max/Min (due numeri)
+      //        riga 1 => MAP
+      //        riga 2 => FC Ritmo
+      //        riga 3 => PVC
+      //        riga 4 => PAP (max, min, media)
+
+      function estraiNumeriDaRiga(riga) {
+        const match = riga.match(/\d+([.,]\d+)?/g);
+        return match ? match.map(x => x.replace(",", ".")) : [];
+      }
+
+      const paNumeri = estraiNumeriDaRiga(righe[0]) || [];
+      const paMax = paNumeri[0] || "";
+      const paMin = paNumeri[1] || "";
+
+      const mapNumeri = estraiNumeriDaRiga(righe[1]) || [];
+      const map = mapNumeri[0] || "";
+
+      const fcNumeri = estraiNumeriDaRiga(righe[2]) || [];
+      const fc = fcNumeri[0] || "";
+
+      const pvcNumeri = estraiNumeriDaRiga(righe[3]) || [];
+      const pvc = pvcNumeri[0] || "";
+
+      const papNumeri = estraiNumeriDaRiga(righe[4]) || [];
+      const papMax = papNumeri[0] || "";
+      const papMin = papNumeri[1] || "";
+      const papMedia = papNumeri[2] || "";
+
+      // Saltare 4 righe: quindi temperatura e sat O2 sono righe 9 e 10 (adattare se serve)
+      const tempNumeri = estraiNumeriDaRiga(righe[9]) || [];
+      const temperatura = tempNumeri[0] || "";
+
+      const satNumeri = estraiNumeriDaRiga(righe[10]) || [];
+      const satO2 = satNumeri[0] || "";
+
+      // Diuresi oraria presumiamo sia ultima riga utile (adattare se serve)
+      const diuresiNumeri = estraiNumeriDaRiga(righe[righe.length - 1]) || [];
+      const diuresi = diuresiNumeri[0] || "";
+
+      // Aggiorna tabella
+      const parametri = [
+        ["PA Max", paMax],
+        ["PA Min", paMin],
+        ["MAP", map],
+        ["FC Ritmo", fc],
+        ["PVC", pvc],
+        ["PAP Max", papMax],
+        ["PAP Min", papMin],
+        ["PAP Media", papMedia],
+        ["Temperatura", temperatura],
+        ["Sat O2", satO2],
+        ["Diuresi oraria", diuresi],
+      ];
 
       table.innerHTML = "<tr><th>Parametro</th><th>Valore</th></tr>";
-      parametri.forEach((nome, i) => {
-        const valore = valoriPuliti[i] ?? "";
-        table.innerHTML += `<tr>
-          <td>${nome}</td>
-          <td>${valore}</td>
-        </tr>`;
+      parametri.forEach(([nome, valore]) => {
+        table.innerHTML += `<tr><td>${nome}</td><td>${valore}</td></tr>`;
       });
 
       loading.innerText = "";
@@ -69,6 +107,7 @@
     });
   }
 </script>
+
 
 </body>
 </html>
