@@ -3,81 +3,199 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione Parametri Vitali OCR</title>
+<title>OCR Buoni Mensa - Estrazione e Salvataggio</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  table { border-collapse: collapse; margin-top: 20px; width: 100%; max-width: 600px; }
-  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: center; }
+  body { font-family: Arial, sans-serif; max-width: 700px; margin: 2em auto; }
+  h1 { text-align:center; }
+  input[type=file] { margin-bottom: 1em; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1em; }
+  th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
   th { background-color: #eee; }
-  #output { margin-top: 20px; }
-  #error { color: red; margin-top: 10px; }
+  input[type=text] { width: 90px; }
+  button { margin-top: 1em; padding: 8px 16px; font-size: 1em; }
+  #savedData { margin-top: 2em; }
+  #savedData table { max-height: 200px; overflow-y: scroll; display: block; }
 </style>
 </head>
 <body>
 
-<h1>Estrazione Parametri Vitali OCR</h1>
+<h1>OCR Estrazione Buoni Mensa</h1>
 
-<input type="file" id="imgInput" accept="image/*" />
-<button id="btnExtract">Estrai e Mostra</button>
-<div id="error"></div>
+<input type="file" id="imageInput" accept="image/*" />
+<button id="startOcr">Estrai Testo</button>
 
-<div id="output"></div>
+<div id="loading" style="display:none;">Elaborazione OCR...</div>
+
+<div id="resultSection" style="display:none;">
+  <h2>Testo Estratto (modificabile)</h2>
+  <table id="resultTable">
+    <thead>
+      <tr>
+        <th>Parametro</th>
+        <th>Valore</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <button id="saveData">Salva su Firestore</button>
+</div>
+
+<div id="savedData">
+  <h2>Dati Salvati</h2>
+  <table>
+    <thead><tr><th>Timestamp</th><th>Parametro</th><th>Valore</th></tr></thead>
+    <tbody id="savedList"></tbody>
+  </table>
+</div>
 
 <script>
-  const parametri = [
-    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
-    "PAP Max", "PAP Min", "PAP Media", "Temperatura",
-    "Sat O2", "Diuresi oraria"
-  ];
+// Firebase Config - METTI QUI LA TUA CONFIG
+const firebaseConfig = {
+  apiKey: "METTI_API_KEY",
+  authDomain: "METTI_AUTH_DOMAIN",
+  projectId: "METTI_PROJECT_ID",
+  storageBucket: "METTI_STORAGE_BUCKET",
+  messagingSenderId: "METTI_SENDER_ID",
+  appId: "METTI_APP_ID"
+};
 
-  const imgInput = document.getElementById('imgInput');
-  const btnExtract = document.getElementById('btnExtract');
-  const output = document.getElementById('output');
-  const errorDiv = document.getElementById('error');
+// Inizializza Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
-  btnExtract.addEventListener('click', () => {
-    errorDiv.textContent = '';
-    output.innerHTML = '';
+const parametri = [
+  "PA Max",
+  "PA Min",
+  "MAP",
+  "FC Ritmo",
+  "PVC",
+  "PAP Max",
+  "PAP Min",
+  "PAP Media",
+  "Temperatura",
+  "Sat O2",
+  "Diuresi oraria"
+];
 
-    if (!imgInput.files || imgInput.files.length === 0) {
-      errorDiv.textContent = 'Seleziona un’immagine prima di procedere.';
-      return;
-    }
+const imageInput = document.getElementById("imageInput");
+const startOcrBtn = document.getElementById("startOcr");
+const loadingDiv = document.getElementById("loading");
+const resultSection = document.getElementById("resultSection");
+const resultTableBody = document.querySelector("#resultTable tbody");
+const saveDataBtn = document.getElementById("saveData");
+const savedList = document.getElementById("savedList");
 
-    const file = imgInput.files[0];
+let currentText = "";
 
-    Tesseract.recognize(file, 'ita')
-      .then(({ data: { text } }) => {
-        if (!text || typeof text !== 'string') {
-          throw new Error('Testo OCR non rilevato o non valido.');
-        }
-
-        // Estrai TUTTI i numeri (con virgola o punto decimale)
-        const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
-
-        if (!numeri || numeri.length === 0) {
-          throw new Error('Nessun numero trovato nel testo OCR.');
-        }
-
-        // Normalizza virgole in punti e limita alla quantità di parametri
-        const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
-
-        // Crea tabella con parametri e valori estratti (se manca un valore, metti vuoto)
-        let html = '<table><thead><tr><th>Parametro</th><th>Valore</th></tr></thead><tbody>';
-        for (let i = 0; i < parametri.length; i++) {
-          html += `<tr><td>${parametri[i]}</td><td>${valori[i] || ''}</td></tr>`;
-        }
-        html += '</tbody></table>';
-
-        output.innerHTML = html;
-      })
-      .catch(err => {
-        errorDiv.textContent = 'Errore durante l\'OCR: ' + err.message;
-        console.error('Errore OCR:', err);
-      });
+function creaRigheVuote() {
+  resultTableBody.innerHTML = "";
+  parametri.forEach(p => {
+    const tr = document.createElement("tr");
+    const tdP = document.createElement("td");
+    tdP.textContent = p;
+    const tdV = document.createElement("td");
+    const inputV = document.createElement("input");
+    inputV.type = "text";
+    inputV.dataset.param = p;
+    tdV.appendChild(inputV);
+    tr.appendChild(tdP);
+    tr.appendChild(tdV);
+    resultTableBody.appendChild(tr);
   });
+}
+
+function parseTestoOCR(text) {
+  // Semplice parsing per dividere righe e prendere valori numerici
+  // Assumiamo che l'ordine sia fisso e i valori numerici siano nella stessa riga o separati da spazi
+
+  const righe = text.split("\n").filter(r => r.trim() !== "");
+  // Log per debug
+  console.log("Righe OCR:", righe);
+
+  // Trova valori numerici nelle righe nell'ordine di parametri
+  // Ignora righe extra (anche se ce ne sono righe da saltare)
+  let valori = [];
+  for (let r of righe) {
+    // Estrai numeri da riga
+    let nums = r.match(/[\d.,]+/g);
+    if (nums && nums.length > 0) {
+      valori.push(nums[0].replace(",", "."));
+    }
+    if (valori.length >= parametri.length) break;
+  }
+  return valori;
+}
+
+startOcrBtn.onclick = () => {
+  if (!imageInput.files.length) {
+    alert("Seleziona prima un'immagine");
+    return;
+  }
+  loadingDiv.style.display = "block";
+  resultSection.style.display = "none";
+  currentText = "";
+
+  const file = imageInput.files[0];
+  Tesseract.recognize(file, "ita", { logger: m => console.log(m) })
+    .then(({ data: { text } }) => {
+      currentText = text;
+      loadingDiv.style.display = "none";
+      resultSection.style.display = "block";
+
+      const valori = parseTestoOCR(text);
+      console.log("Valori estratti:", valori);
+
+      // Carica valori nella tabella (input)
+      creaRigheVuote();
+      const inputs = resultTableBody.querySelectorAll("input");
+      valori.forEach((v, i) => {
+        if (inputs[i]) inputs[i].value = v;
+      });
+    })
+    .catch(err => {
+      loadingDiv.style.display = "none";
+      alert("Errore OCR: " + err.message);
+    });
+};
+
+saveDataBtn.onclick = async () => {
+  // Costruisci oggetto da salvare
+  let dataToSave = { timestamp: new Date().toISOString() };
+  const inputs = resultTableBody.querySelectorAll("input");
+  inputs.forEach(input => {
+    dataToSave[input.dataset.param] = input.value.trim();
+  });
+
+  try {
+    await db.collection("estrazioni").add(dataToSave);
+    alert("Dati salvati con successo!");
+    caricaDatiSalvati();
+  } catch (e) {
+    alert("Errore nel salvataggio: " + e.message);
+  }
+};
+
+function caricaDatiSalvati() {
+  savedList.innerHTML = "";
+  db.collection("estrazioni").orderBy("timestamp", "desc").limit(10).get()
+    .then(snapshot => {
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        const tr = document.createElement("tr");
+        const ts = new Date(d.timestamp).toLocaleString();
+        tr.innerHTML = `<td>${ts}</td><td colspan="2">${JSON.stringify(d)}</td>`;
+        savedList.appendChild(tr);
+      });
+    });
+}
+
+// Carica dati salvati all’avvio
+caricaDatiSalvati();
 </script>
 
 </body>
 </html>
+
