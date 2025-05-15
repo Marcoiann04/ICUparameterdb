@@ -7,8 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
-  table { border-collapse: collapse; margin-top: 20px; }
-  th, td { border: 1px solid #ccc; padding: 8px 12px; }
+  table { border-collapse: collapse; margin-top: 20px; width: 100%; max-width: 600px; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: center; }
   th { background-color: #eee; }
   #output { margin-top: 20px; }
   #error { color: red; margin-top: 10px; }
@@ -47,65 +47,52 @@
           throw new Error('Testo OCR non rilevato o non valido.');
         }
 
-        // Pulisci il testo estratto (rimuovi spazi in eccesso e righe vuote)
+        // Pulizia base testo
         const righe = text.split('\n').map(r => r.trim()).filter(r => r.length > 0);
 
-        // Parametri da estrarre (ordine righe):
-        // 0: PA (es. "131 132" o "131\n132")
-        // 1: MAP
-        // 2: FC Ritmo
-        // 3: PVC
-        // 4: PAP Max
-        // 5: PAP Min
-        // 6: PAP Media
-        // 7: Temperatura (singolo valore)
-        // 8: Sat O2
-        // 9-12: righe da saltare
-        // 13: Diuresi oraria
+        // Dati da estrarre (esempio base, adattabile):
+        // Supponiamo che:
+        // Righe 0,1: PA max e min (due numeri)
+        // Riga 2: MAP
+        // Riga 3: FC Ritmo
+        // Riga 4: PVC
+        // Riga 5: PAP Max
+        // Riga 6: PAP Min
+        // Riga 7: PAP Media
+        // Riga 8: Temperatura (singolo valore)
+        // Riga 9: Sat O2
+        // Riga 10-13: righe da saltare
+        // Riga 14: Diuresi oraria
 
-        if (righe.length < 14) {
-          throw new Error('Testo OCR insufficiente per estrazione dati.');
+        // Controlla numero righe sufficienti
+        if (righe.length < 15) {
+          throw new Error('Testo OCR insufficiente per estrazione dati (righe: ' + righe.length + ').');
         }
 
-        // Funzione di parsing base per split valori numerici da stringhe
-        function parseValori(riga) {
-          // prova a estrarre numeri (con virgola o punto)
-          const matches = riga.match(/[\d.,]+/g);
-          if (!matches) return [];
-          return matches.map(v => v.replace(',', '.'));
+        // Funzione per estrarre numeri da una riga
+        function estraiNumeri(riga) {
+          const numeri = riga.match(/[\d.,]+/g);
+          if (!numeri) return [];
+          return numeri.map(n => n.replace(',', '.'));
         }
 
-        // Estrazione PA (max e min) nella stessa riga o separate
-        let paMax = '';
-        let paMin = '';
-        const paValori = parseValori(righe[0]);
-        if (paValori.length >= 2) {
-          paMax = paValori[0];
-          paMin = paValori[1];
-        } else if (righe.length > 1) {
-          // se non in prima riga, prova seconda riga
-          const paValori2 = parseValori(righe[1]);
-          if (paValori2.length >= 1) {
-            paMin = paValori2[0];
-          }
-        }
+        const paValori = estraiNumeri(righe[0] + ' ' + righe[1]);
+        const paMax = paValori[0] || '';
+        const paMin = paValori[1] || '';
 
-        const map = parseValori(righe[1])[0] || '';
-        const fcRitmo = parseValori(righe[2])[0] || '';
-        const pvc = parseValori(righe[3])[0] || '';
-        const papMax = parseValori(righe[4])[0] || '';
-        const papMin = parseValori(righe[5])[0] || '';
-        const papMedia = parseValori(righe[6])[0] || '';
-        const temperatura = parseValori(righe[7])[0] || '';
-        const satO2 = parseValori(righe[8])[0] || '';
-        const diuresi = parseValori(righe[13])[0] || '';
+        const map = estraiNumeri(righe[2])[0] || '';
+        const fcRitmo = estraiNumeri(righe[3])[0] || '';
+        const pvc = estraiNumeri(righe[4])[0] || '';
+        const papMax = estraiNumeri(righe[5])[0] || '';
+        const papMin = estraiNumeri(righe[6])[0] || '';
+        const papMedia = estraiNumeri(righe[7])[0] || '';
+        const temperatura = estraiNumeri(righe[8])[0] || '';
+        const satO2 = estraiNumeri(righe[9])[0] || '';
+        const diuresi = estraiNumeri(righe[14])[0] || '';
 
-        // Mostra i dati in tabella
         output.innerHTML = `
           <table>
-            <thead>
-              <tr><th>Parametro</th><th>Valore</th></tr>
-            </thead>
+            <thead><tr><th>Parametro</th><th>Valore</th></tr></thead>
             <tbody>
               <tr><td>PA Max</td><td>${paMax}</td></tr>
               <tr><td>PA Min</td><td>${paMin}</td></tr>
