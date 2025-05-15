@@ -3,28 +3,55 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione Parametri Vitali OCR</title>
+<title>Estrazione Parametri Vitali OCR con Firebase</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
-  table { border-collapse: collapse; margin-top: 20px; width: 100%; max-width: 600px; }
-  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: center; }
-  th { background-color: #eee; }
-  #output { margin-top: 20px; }
+  #output { 
+    margin-top: 20px; 
+    font-family: monospace; 
+    white-space: pre; 
+    border: 1px solid #ccc; 
+    padding: 10px; 
+    max-width: 600px; 
+    user-select: all; /* permette facile copia */
+    cursor: text;
+  }
   #error { color: red; margin-top: 10px; }
+  #saveMsg { color: green; margin-top: 10px; }
 </style>
 </head>
 <body>
 
-<h1>Estrazione Parametri Vitali OCR</h1>
+<h1>Estrazione Parametri Vitali OCR con Firebase</h1>
 
 <input type="file" id="imgInput" accept="image/*" />
 <button id="btnExtract">Estrai e Mostra</button>
 <div id="error"></div>
+<div id="saveMsg"></div>
 
-<div id="output"></div>
+<pre id="output"></pre>
 
 <script>
+  // Firebase config
+  const firebaseConfig = {
+    apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
+    authDomain: "icuparameters.firebaseapp.com",
+    projectId: "icuparameters",
+    storageBucket: "icuparameters.firebasestorage.app",
+    messagingSenderId: "967179535774",
+    appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
+  };
+
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
   const parametri = [
     "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
     "PAP Max", "PAP Min", "PAP Media", "Temperatura",
@@ -35,10 +62,12 @@
   const btnExtract = document.getElementById('btnExtract');
   const output = document.getElementById('output');
   const errorDiv = document.getElementById('error');
+  const saveMsg = document.getElementById('saveMsg');
 
   btnExtract.addEventListener('click', () => {
     errorDiv.textContent = '';
-    output.innerHTML = '';
+    saveMsg.textContent = '';
+    output.textContent = '';
 
     if (!imgInput.files || imgInput.files.length === 0) {
       errorDiv.textContent = 'Seleziona un’immagine prima di procedere.';
@@ -53,24 +82,36 @@
           throw new Error('Testo OCR non rilevato o non valido.');
         }
 
-        // Estrai TUTTI i numeri (con virgola o punto decimale)
+        // Estrai numeri (con virgola o punto decimale)
         const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
 
         if (!numeri || numeri.length === 0) {
           throw new Error('Nessun numero trovato nel testo OCR.');
         }
 
-        // Normalizza virgole in punti e limita alla quantità di parametri
         const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
 
-        // Crea tabella con parametri e valori estratti (se manca un valore, metti vuoto)
-        let html = '<table><thead><tr><th>Parametro</th><th>Valore</th></tr></thead><tbody>';
-        for (let i = 0; i < parametri.length; i++) {
-          html += `<tr><td>${parametri[i]}</td><td>${valori[i] || ''}</td></tr>`;
-        }
-        html += '</tbody></table>';
+        // Output valori separati da tabulazione, una riga sola
+        output.textContent = valori.join('\t');
 
-        output.innerHTML = html;
+        // Salva su Firebase
+        const docData = { 
+          timestamp: new Date().toISOString(),
+          parametri: {}
+        };
+        for(let i=0; i < parametri.length; i++) {
+          docData.parametri[parametri[i]] = valori[i] || null;
+        }
+
+        db.collection('estrazioni').add(docData)
+          .then(() => {
+            saveMsg.textContent = 'Dati salvati correttamente su Firebase!';
+          })
+          .catch(err => {
+            saveMsg.style.color = 'red';
+            saveMsg.textContent = 'Errore nel salvataggio su Firebase: ' + err.message;
+          });
+
       })
       .catch(err => {
         errorDiv.textContent = 'Errore durante l\'OCR: ' + err.message;
@@ -81,5 +122,4 @@
 
 </body>
 </html>
-
 
