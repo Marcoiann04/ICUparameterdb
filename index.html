@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Estrazione tabella da immagine</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  textarea { width: 100%; height: 200px; font-family: monospace; }
+  #output { white-space: pre; background: #f0f0f0; padding: 10px; margin-top: 10px; border: 1px solid #ccc; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<h1>Estrazione tabella da immagine</h1>
+
+<input type="file" id="imgInput" accept="image/*" />
+<button id="processBtn" disabled>Estrai dati</button>
+
+<div id="status"></div>
+
+<h2>Risultato (tab separato, copia e incolla in Excel)</h2>
+<pre id="output"></pre>
+
+<script>
+const imgInput = document.getElementById('imgInput');
+const processBtn = document.getElementById('processBtn');
+const status = document.getElementById('status');
+const output = document.getElementById('output');
+
+let imgDataURL = null;
+let rawText = '';
+
+const paramsToFind = [
+  { key: 'PA', aliases: ['PA', 'ABP_s', 'ABP sistolica'] },
+  { key: 'PA_d', aliases: ['diastolica', 'ABP_d', 'PA diastolica'] },
+  { key: 'MAP', aliases: ['MAP', 'ABP_m'] },
+  { key: 'Fc ritmo', aliases: ['Fc ritmo', 'HR'] },
+  { key: 'PVC', aliases: ['PVC', 'CVP'] },
+  { key: 'PAP', aliases: ['PAP', 'PAP_s', 'PAP_d', 'PAP_m'] },
+  { key: 'T periferica', aliases: ['T° perif', 'T_per', 'T_perif'] },
+  { key: 'T interna', aliases: ['T int', 'T_int'] },
+  { key: 'Sat O2', aliases: ['Sat O2', 'SpO2'] },
+  { key: 'Diuresi oraria', aliases: ['Diuresi oraria', 'UrineOutput_hour'] }
+];
+
+// Funzione per normalizzare stringhe (minuscolo, senza spazi)
+function normalize(str) {
+  return str.toLowerCase().replace(/\s+/g, '');
+}
+
+// Parsing semplice: estrai righe e colonne da testo OCR
+function parseTable(text) {
+  // Divido per righe (considero \n e righe vuote)
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  // Cerco riga ORA per prendere intestazioni colonne
+  let headerLineIndex = lines.findIndex(line => /ora|time|hour/i.test(line));
+  if (headerLineIndex === -1) {
+    status.textContent = 'Errore: non trovo intestazione orari nella tabella.';
+    return null;
+  }
+
+  const headerLine = lines[headerLineIndex];
+  // Estrazione orari dalla riga header (esempio: 7 8:30 11:30 ...)
+  const hours = headerLine.split(/\s+/).filter(h => h && !/ora|time|hour/i.test(h));
+
+  // Prendo tutte le righe dopo header (parametri + valori)
+  const dataLines = lines.slice(headerLineIndex + 1);
+
+  // Ogni riga la divido in colonne basandosi su spazi multipli o tab (semplificato)
+  const table = dataLines.map(line => line.split(/\s{2,}|\t/).filter(c => c));
+
+  return { hours, table };
+}
+
+// Trova riga che corrisponde al parametro cercato (con alias)
+function findRow(table, aliases) {
+  for (const row of table) {
+    const firstColNorm = normalize(row[0]);
+    for (const alias of aliases) {
+      if (normalize(alias) === firstColNorm || firstColNorm.includes(normalize(alias))) {
+        return row;
+      }
+    }
+  }
+  return null;
+}
+
+function extractData(parsed) {
+  if (!parsed) return '';
+
+  const { hours, table } = parsed;
+
+  // Costruisco array risultato
+  const results = [];
+
+  // Header tabulato
+  results.push(['Parametro', ...hours].join('\t'));
+
+  // PA sistolica e diastolica vanno divisi
+  const paRow = findRow(table, ['PA']);
+  const pa_dRow = findRow(table, ['diastolica', 'PA_d', 'ABP_d']);
+
+  if (paRow) results.push(['PA sistolica', ...paRow.slice(1)].join('\t'));
+  if (pa_dRow) results.push(['PA diastolica', ...pa_dRow.slice(1)].join('\t'));
+
+  // Gli altri parametri
+  const mapRow = findRow(table, ['MAP']);
+  if (mapRow) results.push(['MAP', ...mapRow.slice(1)].join('\t'));
+
+  const fcRow = findRow(table, ['Fc ritmo', 'HR']);
+  if (fcRow) results.push(['Fc ritmo', ...fcRow.slice(1)].join('\t'));
+
+  const pvcRow = findRow(table, ['PVC', 'CVP']);
+  if (pvcRow) results.push(['PVC', ...pvcRow.slice(1)].join('\t'));
+
+  // PAP potrebbe essere diviso in sottocategorie, qui semplicemente cerchiamo la riga PAP
+  const papRow = findRow(table, ['PAP']);
+  if (papRow) results.push(['PAP', ...papRow.slice(1)].join('\t'));
+
+  const t_perRow = findRow(table, ['T periferica', 'T° perif', 'T_per', 'T_perif']);
+  if (t_perRow) results.push(['T periferica', ...t_perRow.slice(1)].join('\t'));
+
+  const t_intRow = findRow(table, ['T interna', 'T int', 'T_int']);
+  if (t_intRow) results.push(['T interna', ...t_intRow.slice(1)].join('\t'));
+
+  const satRow = findRow(table, ['Sat O2', 'SpO2']);
+  if (satRow) results.push(['Sat O2', ...satRow.slice(1)].join('\t'));
+
+  const diuresiRow = findRow(table, ['Diuresi oraria', 'UrineOutput_hour']);
+  if (diuresiRow) results.push(['Diuresi oraria', ...diuresiRow.slice(1)].join('\t'));
+
+  return results.join('\n');
+}
+
+imgInput.addEventListener('change', () => {
+  if (imgInput.files.length > 0) {
+    processBtn.disabled = false;
+    output.textContent = '';
+    status.textContent = '';
+  } else {
+    processBtn.disabled = true;
+  }
+});
+
+processBtn.addEventListener('click', () => {
+  if (!imgInput.files.length) return;
+  processBtn.disabled = true;
+  output.textContent = '';
+  status.textContent = 'Elaborazione in corso...';
+
+  const file = imgInput.files[0];
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    imgDataURL = reader.result;
+
+    Tesseract.recognize(imgDataURL, 'ita')
+      .then(({ data: { text } }) => {
+        rawText = text;
+        status.textContent = 'OCR completato. Parsing tabella...';
+
+        const parsed = parseTable(rawText);
+        if (!parsed) {
+          status.textContent = 'Errore nel parsing della tabella.';
+          processBtn.disabled = false;
+          return;
+        }
+
+        const extracted = extractData(parsed);
+
+        output.textContent = extracted || 'Nessun dato estratto.';
+        status.textContent = 'Estrazione completata.';
+        processBtn.disabled = false;
+      })
+      .catch(err => {
+        status.textContent = 'Errore OCR: ' + err.message;
+        processBtn.disabled = false;
+      });
+  };
+
+  reader.readAsDataURL(file);
+});
+</script>
+
+</body>
+</html>
