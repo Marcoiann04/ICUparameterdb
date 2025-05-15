@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>OCR Buoni Mensa</title>
+<title>Estrazione Parametri Vitali OCR</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
@@ -16,7 +16,7 @@
 </head>
 <body>
 
-<h1>OCR Buoni Mensa - Estrazione dati</h1>
+<h1>Estrazione Parametri Vitali OCR</h1>
 
 <input type="file" id="imgInput" accept="image/*" />
 <button id="btnExtract">Estrai e Mostra</button>
@@ -25,6 +25,12 @@
 <div id="output"></div>
 
 <script>
+  const parametri = [
+    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
+    "PAP Max", "PAP Min", "PAP Media", "Temperatura",
+    "Sat O2", "Diuresi oraria"
+  ];
+
   const imgInput = document.getElementById('imgInput');
   const btnExtract = document.getElementById('btnExtract');
   const output = document.getElementById('output');
@@ -47,67 +53,24 @@
           throw new Error('Testo OCR non rilevato o non valido.');
         }
 
-        // Pulizia base testo
-        const righe = text.split('\n').map(r => r.trim()).filter(r => r.length > 0);
+        // Estrai TUTTI i numeri (con virgola o punto decimale)
+        const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
 
-        // Dati da estrarre (esempio base, adattabile):
-        // Supponiamo che:
-        // Righe 0,1: PA max e min (due numeri)
-        // Riga 2: MAP
-        // Riga 3: FC Ritmo
-        // Riga 4: PVC
-        // Riga 5: PAP Max
-        // Riga 6: PAP Min
-        // Riga 7: PAP Media
-        // Riga 8: Temperatura (singolo valore)
-        // Riga 9: Sat O2
-        // Riga 10-13: righe da saltare
-        // Riga 14: Diuresi oraria
-
-        // Controlla numero righe sufficienti
-        if (righe.length < 15) {
-          throw new Error('Testo OCR insufficiente per estrazione dati (righe: ' + righe.length + ').');
+        if (!numeri || numeri.length === 0) {
+          throw new Error('Nessun numero trovato nel testo OCR.');
         }
 
-        // Funzione per estrarre numeri da una riga
-        function estraiNumeri(riga) {
-          const numeri = riga.match(/[\d.,]+/g);
-          if (!numeri) return [];
-          return numeri.map(n => n.replace(',', '.'));
+        // Normalizza virgole in punti e limita alla quantità di parametri
+        const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
+
+        // Crea tabella con parametri e valori estratti (se manca un valore, metti vuoto)
+        let html = '<table><thead><tr><th>Parametro</th><th>Valore</th></tr></thead><tbody>';
+        for (let i = 0; i < parametri.length; i++) {
+          html += `<tr><td>${parametri[i]}</td><td>${valori[i] || ''}</td></tr>`;
         }
+        html += '</tbody></table>';
 
-        const paValori = estraiNumeri(righe[0] + ' ' + righe[1]);
-        const paMax = paValori[0] || '';
-        const paMin = paValori[1] || '';
-
-        const map = estraiNumeri(righe[2])[0] || '';
-        const fcRitmo = estraiNumeri(righe[3])[0] || '';
-        const pvc = estraiNumeri(righe[4])[0] || '';
-        const papMax = estraiNumeri(righe[5])[0] || '';
-        const papMin = estraiNumeri(righe[6])[0] || '';
-        const papMedia = estraiNumeri(righe[7])[0] || '';
-        const temperatura = estraiNumeri(righe[8])[0] || '';
-        const satO2 = estraiNumeri(righe[9])[0] || '';
-        const diuresi = estraiNumeri(righe[14])[0] || '';
-
-        output.innerHTML = `
-          <table>
-            <thead><tr><th>Parametro</th><th>Valore</th></tr></thead>
-            <tbody>
-              <tr><td>PA Max</td><td>${paMax}</td></tr>
-              <tr><td>PA Min</td><td>${paMin}</td></tr>
-              <tr><td>MAP</td><td>${map}</td></tr>
-              <tr><td>FC Ritmo</td><td>${fcRitmo}</td></tr>
-              <tr><td>PVC</td><td>${pvc}</td></tr>
-              <tr><td>PAP Max</td><td>${papMax}</td></tr>
-              <tr><td>PAP Min</td><td>${papMin}</td></tr>
-              <tr><td>PAP Media</td><td>${papMedia}</td></tr>
-              <tr><td>Temperatura</td><td>${temperatura}</td></tr>
-              <tr><td>Sat O2</td><td>${satO2}</td></tr>
-              <tr><td>Diuresi oraria</td><td>${diuresi}</td></tr>
-            </tbody>
-          </table>
-        `;
+        output.innerHTML = html;
       })
       .catch(err => {
         errorDiv.textContent = 'Errore durante l\'OCR: ' + err.message;
@@ -118,4 +81,3 @@
 
 </body>
 </html>
-
