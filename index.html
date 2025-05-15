@@ -1,70 +1,52 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione Parametri Vitali OCR con correzione manuale</title>
+<title>Estrazione Parametri Vitali OCR + Correzione</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
-
-<!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  #output, #correctInput { 
-    margin-top: 20px; 
-    font-family: monospace; 
-    white-space: pre; 
-    border: 1px solid #ccc; 
-    padding: 10px; 
-    max-width: 600px; 
-    user-select: all; 
-    cursor: text;
-  }
-  #correctInput {
-    width: 600px;
-    height: 30px;
-    font-family: monospace;
-    white-space: nowrap;
-    overflow-x: auto;
-  }
+  body { font-family: Arial, sans-serif; margin: 20px; max-width: 700px; }
+  textarea, input, button { font-size: 1rem; margin-top: 10px; width: 100%; box-sizing: border-box; }
+  #ocrOutput { white-space: pre-wrap; margin-top: 20px; background: #f9f9f9; padding: 10px; border: 1px solid #ccc; min-height: 80px; font-family: monospace; }
+  #message { margin-top: 10px; font-weight: bold; }
   #error { color: red; margin-top: 10px; }
-  #saveMsg { color: green; margin-top: 10px; }
-  button { margin-top: 10px; }
 </style>
 </head>
 <body>
 
-<h1>Estrazione Parametri Vitali OCR con correzione manuale</h1>
+<h1>Estrazione Parametri Vitali OCR + Correzione</h1>
 
 <input type="file" id="imgInput" accept="image/*" />
-<button id="btnExtract">Estrai</button>
-
+<button id="btnExtract">Estrai e Mostra</button>
 <div id="error"></div>
 
-<h3>Valori OCR estratti (tab separati):</h3>
-<pre id="output" tabindex="0"></pre>
+<div>
+  <h3>Valori estratti (tab separati, copiabili):</h3>
+  <div id="ocrOutput"></div>
+</div>
 
-<h3>Inserisci valori corretti (tab separati):</h3>
-<textarea id="correctInput" placeholder="Incolla qui i valori corretti separati da tab" spellcheck="false"></textarea>
+<div>
+  <h3>Inserisci i dati corretti (tab separati):</h3>
+  <textarea id="correctInput" rows="3" placeholder="Incolla qui i dati corretti separati da tab..."></textarea>
+  <button id="btnSendCorrect">Invia Dati Corretti</button>
+</div>
 
-<button id="btnSave" disabled>Salva su Firebase</button>
-
-<div id="saveMsg"></div>
-<textarea id="correctInput" rows="3" cols="50" placeholder="Incolla qui i dati corretti separati da tab..."></textarea>
-<button id="btnSendCorrect">Invia Dati Corretti</button>
-
-<div id="ocrOutput" style="white-space: pre-wrap; margin-top: 20px;"></div>
 <div id="message"></div>
 
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-
 <script>
-  // Config Firebase (usa la tua)
+  // Parametri nell'ordine richiesto
+  const parametri = [
+    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
+    "PAP Max", "PAP Min", "PAP Media", "Temperatura",
+    "Sat O2", "Diuresi oraria"
+  ];
+
+  // Firebase config
   const firebaseConfig = {
- apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
+    apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
     authDomain: "icuparameters.firebaseapp.com",
     projectId: "icuparameters",
     storageBucket: "icuparameters.firebasestorage.app",
@@ -75,21 +57,54 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
+  const imgInput = document.getElementById('imgInput');
+  const btnExtract = document.getElementById('btnExtract');
   const btnSendCorrect = document.getElementById('btnSendCorrect');
-  const correctInput = document.getElementById('correctInput');
   const ocrOutput = document.getElementById('ocrOutput');
+  const correctInput = document.getElementById('correctInput');
+  const errorDiv = document.getElementById('error');
   const message = document.getElementById('message');
 
-  let lastOCRValues = ""; // memorizziamo l'ultima estrazione OCR (stringa tabulata)
+  let lastOCRValues = ""; // stringa tabulata degli ultimi valori OCR estratti
 
-  // Supponiamo che qui tu abbia già il codice per fare OCR e popolare lastOCRValues
-  // Per esempio dopo estrazione OCR fai:
-  // lastOCRValues = "131\t77\t101\t80\t3\t...\n";
+  btnExtract.addEventListener('click', () => {
+    errorDiv.textContent = "";
+    message.textContent = "";
+    ocrOutput.textContent = "";
+    correctInput.value = "";
 
-  // Mostra i dati OCR come testo semplice (tabulato)
-  function mostraOCRTesto(valori) {
-    ocrOutput.textContent = valori;
-  }
+    if (!imgInput.files || imgInput.files.length === 0) {
+      errorDiv.textContent = "Seleziona un’immagine prima di procedere.";
+      return;
+    }
+
+    const file = imgInput.files[0];
+    Tesseract.recognize(file, 'ita')
+      .then(({ data: { text } }) => {
+        if (!text || typeof text !== 'string') {
+          throw new Error('Testo OCR non rilevato o non valido.');
+        }
+
+        // Estrai TUTTI i numeri (con virgola o punto decimale)
+        const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
+
+        if (!numeri || numeri.length < parametri.length) {
+          throw new Error('Dati insufficienti estratti dal testo OCR.');
+        }
+
+        // Normalizza virgole in punti e limita alla quantità di parametri
+        const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
+
+        // Crea stringa tabulata solo con i valori (no nomi)
+        lastOCRValues = valori.join('\t');
+
+        ocrOutput.textContent = lastOCRValues;
+      })
+      .catch(err => {
+        errorDiv.textContent = "Errore durante l'OCR: " + err.message;
+        console.error("Errore OCR:", err);
+      });
+  });
 
   btnSendCorrect.addEventListener('click', () => {
     const datiCorretti = correctInput.value.trim();
@@ -97,7 +112,11 @@
       message.textContent = "Inserisci prima i dati corretti.";
       return;
     }
-    // Usa un ID unico, ad esempio timestamp
+    if (!lastOCRValues) {
+      message.textContent = "Prima estrai i dati OCR.";
+      return;
+    }
+
     const idDoc = "correzione_" + Date.now();
 
     db.collection("dati_corretti").doc(idDoc).set({
@@ -112,7 +131,6 @@
     });
   });
 </script>
-
 
 </body>
 </html>
