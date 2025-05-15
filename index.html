@@ -1,15 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Estrazione Parametri Vitali</title>
-  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
+  <title>Estrazione Parametri Vitali - Base</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
   <style>
     body { font-family: Arial; padding: 20px; }
     table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
     th { background: #f0f0f0; }
-    input[type=\"file\"] { margin-bottom: 10px; }
+    input[type="file"] { margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -18,52 +16,37 @@
 <input type="file" id="imageInput" accept="image/*"><br>
 <button onclick="estraiDati()">Estrai e Mostra</button>
 <p id="loading" style="color: green;"></p>
-<table id="resultsTable" style="margin-top: 20px;"></table>
-<br>
-<button onclick="salvaSuFirestore()">Salva su Firestore</button>
+<table id="resultsTable" style="margin-top: 20px;">
+  <tr><th>Parametro</th><th>Valore</th></tr>
+</table>
 
 <script>
-  // Firebase config
-  const firebaseConfig = {
-    apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
-    authDomain: "icuparameters.firebaseapp.com",
-    projectId: "icuparameters",
-    storageBucket: "icuparameters.appspot.com",
-    messagingSenderId: "967179535774",
-    appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-
   const parametri = [
     "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
     "PAP Max", "PAP Min", "PAP Media",
     "Temperatura", "Sat O2", "Diuresi oraria"
   ];
 
-  async function estraiDati() {
+  function estraiDati() {
     const file = document.getElementById("imageInput").files[0];
     const loading = document.getElementById("loading");
     const table = document.getElementById("resultsTable");
 
     if (!file) {
-      alert("Seleziona un'immagine.");
+      alert("Per favore, seleziona un'immagine prima di estrarre.");
       return;
     }
 
     loading.innerText = "Elaborazione OCR in corso...";
 
-    try {
-      const result = await Tesseract.recognize(file, 'eng', {
-        logger: m => console.log(m)
-      });
-
-      const text = result.data.text;
+    Tesseract.recognize(file, 'eng', {
+      logger: m => console.log(m)
+    }).then(({ data: { text } }) => {
       console.log("Testo OCR:", text);
 
       const righe = text.split("\n").map(r => r.trim()).filter(r => r.length > 0);
       const numeriEstratti = righe
-        .map(r => r.match(/\\d+(?:[.,]\\d+)?/g))
+        .map(r => r.match(/\d+(?:[.,]\d+)?/g))
         .flat()
         .filter(Boolean);
 
@@ -72,37 +55,20 @@
       table.innerHTML = "<tr><th>Parametro</th><th>Valore</th></tr>";
       parametri.forEach((nome, i) => {
         const valore = valoriPuliti[i] ?? "";
-        table.innerHTML += \`<tr>
-          <td>\${nome}</td>
-          <td><input id="valore-\${i}" value="\${valore}" /></td>
-        </tr>\`;
+        table.innerHTML += `<tr>
+          <td>${nome}</td>
+          <td>${valore}</td>
+        </tr>`;
       });
 
       loading.innerText = "";
-    } catch (err) {
+    }).catch(err => {
       console.error("Errore OCR:", err);
-      alert("Errore durante l'OCR. Vedi console.");
+      alert("Errore durante l'OCR. Controlla la console.");
       loading.innerText = "";
-    }
-  }
-
-  async function salvaSuFirestore() {
-    const dati = {};
-    parametri.forEach((nome, i) => {
-      dati[nome] = document.getElementById(\`valore-\${i}\`)?.value ?? "";
     });
-
-    try {
-      await db.collection("esempi_corretti").add(dati);
-      alert("Dati salvati correttamente in Firestore!");
-    } catch (e) {
-      console.error("Errore nel salvataggio:", e);
-      alert("Errore nel salvataggio. Controlla la console.");
-    }
   }
 </script>
 
 </body>
 </html>
-
-
