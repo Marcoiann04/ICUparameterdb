@@ -2,156 +2,87 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione tabella da immagine</title>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+<title>Estrazione tabella con AI simulata</title>
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px; }
-  table { border-collapse: collapse; margin-top: 20px; }
-  th, td { border: 1px solid #ccc; padding: 6px 12px; text-align: center; }
-  th { background-color: #eee; }
-  textarea { width: 100%; height: 150px; margin-top: 20px; font-family: monospace; }
+  textarea { width: 100%; height: 120px; }
+  table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
 </style>
 </head>
 <body>
 
-<h1>Estrazione tabella da immagine</h1>
-<input type="file" id="imageInput" accept="image/*" />
-<button id="extractBtn">Estrai dati</button>
-<div id="status"></div>
+<h1>Estrazione tabella da testo OCR</h1>
 
+<textarea id="ocrText" placeholder="Incolla qui il testo OCR..."></textarea><br>
+<button onclick="estraiDati()">Estrai dati</button>
+
+<h2>Risultato</h2>
 <div id="output"></div>
 
 <script>
-const paramOrder = [
-  "PA_sist",
-  "PA_diast",
+// Parametri da estrarre in ordine
+const parametri = [
+  "PA",       // da dividere in sistolica + diastolica
   "MAP",
-  "Fc_ritmo",
+  "Fc ritmo",
   "PVC",
-  "PAP_max",
-  "PAP_min",
-  "PAP_med",
-  "T_perif_int",
-  "Sat_O2",
-  "Diuresi_oraria"
+  "PAP max",
+  "PAP min",
+  "PAP media",
+  "T perif/int",
+  "Sat O2",
+  "Diuresi oraria"
 ];
 
-// Funzione per dividere PA in sistolica e diastolica
-function parsePA(text) {
-  // Cerca due numeri in sequenza (es. "130 80", "135/80", "130-80")
-  const match = text.match(/(\d{2,3})\D+(\d{2,3})/);
-  if (match) return [match[1], match[2]];
-  // Se non trovato, prova a prendere il primo numero come sistolica e vuoto diastolica
-  const firstNum = text.match(/\d{2,3}/);
-  return firstNum ? [firstNum[0], ""] : ["", ""];
-}
+// Funzione che simula un parsing “intelligente” dal testo
+function estraiDati() {
+  const text = document.getElementById("ocrText").value;
+  // Divido il testo in righe
+  const righe = text.split("\n").map(r => r.trim()).filter(r => r.length > 0);
 
-// Funzione per dividere PAP in 3 valori (max, min, med)
-function parsePAP(text) {
-  // Estrai numeri da testo (es. "46 38 41", "46/38/41", "46-38-41")
-  const nums = text.match(/\d+/g);
-  if (nums && nums.length >= 3) return [nums[0], nums[1], nums[2]];
-  if (nums && nums.length === 2) return [nums[0], nums[1], ""];
-  if (nums && nums.length === 1) return [nums[0], "", ""];
-  return ["", "", ""];
-}
+  // Array per salvare dati
+  let dati = {};
 
-// Funzione per pulire testo (toglie caratteri strani)
-function cleanText(t) {
-  return t.replace(/[^\d.,%]/g, "").replace(",", ".");
-}
+  // Contatore per parametri (perchè non ci sono nomi per ogni riga, si va per ordine)
+  let indexParam = 0;
 
-// Funzione principale di estrazione
-function extractValues(text) {
-  // Split in righe e filtra righe vuote
-  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-  
-  // Il testo viene considerato in ordine, si estrae la prima riga PA, poi MAP, ecc.
-  // Salta 4 righe dopo Sat_O2 (riga 10) per arrivare a Diuresi_oraria
-  let results = {};
-  let iLine = 0;
+  // Scorro righe e cerco numeri
+  for(let r of righe) {
+    if(indexParam >= parametri.length) break; // finito
 
-  // PA (due valori)
-  if(iLine < lines.length){
-    const paVals = parsePA(lines[iLine]);
-    results["PA_sist"] = paVals[0];
-    results["PA_diast"] = paVals[1];
-    iLine++;
-  }
+    // Trovo i numeri nella riga
+    let numeri = r.match(/(\d+(\.\d+)?|(\d+\/\d+)|(\d+,\d+))/g);
+    if(!numeri) continue;
 
-  // MAP
-  results["MAP"] = iLine < lines.length ? cleanText(lines[iLine]) : "";
-  iLine++;
-
-  // Fc Ritmo
-  results["Fc_ritmo"] = iLine < lines.length ? cleanText(lines[iLine]) : "";
-  iLine++;
-
-  // PVC
-  results["PVC"] = iLine < lines.length ? cleanText(lines[iLine]) : "";
-  iLine++;
-
-  // PAP (tre valori)
-  if(iLine < lines.length){
-    const papVals = parsePAP(lines[iLine]);
-    results["PAP_max"] = papVals[0];
-    results["PAP_min"] = papVals[1];
-    results["PAP_med"] = papVals[2];
-    iLine++;
-  }
-
-  // T perif/int
-  results["T_perif_int"] = iLine < lines.length ? cleanText(lines[iLine]) : "";
-  iLine++;
-
-  // Sat O2
-  results["Sat_O2"] = iLine < lines.length ? cleanText(lines[iLine]) : "";
-  iLine++;
-
-  // Salta 4 righe inutili
-  iLine += 4;
-
-  // Diuresi oraria
-  results["Diuresi_oraria"] = iLine < lines.length ? cleanText(lines[iLine]) : "";
-
-  return results;
-}
-
-document.getElementById("extractBtn").addEventListener("click", async () => {
-  const input = document.getElementById("imageInput");
-  const status = document.getElementById("status");
-  const outputDiv = document.getElementById("output");
-  outputDiv.innerHTML = "";
-  if (!input.files.length) {
-    alert("Seleziona un'immagine prima!");
-    return;
-  }
-  const file = input.files[0];
-  status.textContent = "OCR in corso, attendere...";
-
-  try {
-    const { data: { text } } = await Tesseract.recognize(file, 'ita');
-    status.textContent = "Estrazione completata.";
-    
-    // Estrai i valori
-    const vals = extractValues(text);
-
-    // Crea tabella per output
-    let html = "<table><thead><tr><th>Parametro</th><th>Valore</th></tr></thead><tbody>";
-    for (const p of paramOrder) {
-      html += `<tr><td>${p.replace(/_/g, " ")}</td><td>${vals[p] || ""}</td></tr>`;
+    // Speciale per PA: ha 2 numeri, sistolica e diastolica
+    if(parametri[indexParam] === "PA" && numeri.length >= 2) {
+      dati["PA sistolica"] = numeri[0].replace(",", ".");
+      dati["PA diastolica"] = numeri[1].replace(",", ".");
+      indexParam++;
+      continue;
     }
-    html += "</tbody></table>";
 
-    // Output
-    outputDiv.innerHTML = html;
+    // Per PAP che si divide in max, min e media prendiamo una riga alla volta
+    if(parametri[indexParam].startsWith("PAP")) {
+      dati[parametri[indexParam]] = numeri[0].replace(",", ".");
+      indexParam++;
+      continue;
+    }
 
-  } catch (e) {
-    status.textContent = "Errore durante OCR: " + e.message;
+    // Per tutti gli altri prendo il primo numero trovato
+    dati[parametri[indexParam]] = numeri[0].replace(",", ".");
+    indexParam++;
   }
-});
-</script>
 
+  // Costruisco tabella HTML da mostrare
+  let html = "<table><thead><tr><th>Parametro</th><th>Valore</th></tr></thead><tbody>";
+  for(let p of parametri) {
+    html += `<tr><td>${p}</td><td>${dati[p] || ""}</td></tr>`;
+  }
+  html += "</tbody></table>";
+
+  document.getElementById("output").innerHTML = html;
+}
+
+</script>
 </body>
 </html>
