@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione tabella da immagine + Allenamento</title>
+<title>Estrazione dati da immagine con OCR automatico + Allenamento</title>
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
   h2 { margin-top: 40px; }
@@ -14,23 +14,26 @@
   .container { max-width: 900px; margin: auto; }
   button { margin-top: 10px; }
   .example { background: #f0f0f0; padding: 10px; margin-top: 10px; white-space: pre-wrap; font-family: monospace; }
+  #imgPreview { max-width: 100%; margin-top: 10px; border: 1px solid #ccc; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 </head>
 <body>
 <div class="container">
-  <h1>Estrazione tabella da immagine + Allenamento</h1>
+  <h1>Estrazione dati da immagine con OCR automatico + Allenamento</h1>
 
-  <h2>1. Estrazione dati</h2>
-  <p><strong>Carica immagine (opzionale, solo per riferimento):</strong></p>
+  <h2>1. Estrazione dati automatica</h2>
+  <p><strong>Carica immagine:</strong></p>
   <input type="file" id="imageInput" accept="image/*" />
+  <img id="imgPreview" alt="Anteprima immagine" />
 
-  <p><strong>Incolla qui il testo OCR estratto dall'immagine:</strong></p>
-  <textarea id="ocrText" placeholder="Incolla qui il testo OCR"></textarea>
+  <p><strong>Testo OCR estratto (modificabile):</strong></p>
+  <textarea id="ocrText"></textarea>
 
-  <button id="extractBtn">Estrai dati</button>
+  <button id="extractBtn">Estrai dati dalla versione OCR</button>
 
   <h3>Risultato (tab separato, copia e incolla in Excel):</h3>
-  <pre id="resultArea" style="background:#eee; padding:10px; white-space: pre-wrap;"></pre>
+  <pre id="resultArea" style="background:#eee; padding:10px; white-space: pre-wrap; min-height: 100px;"></pre>
 
   <hr>
 
@@ -48,42 +51,52 @@
 </div>
 
 <script>
+  const imageInput = document.getElementById('imageInput');
+  const imgPreview = document.getElementById('imgPreview');
+  const ocrText = document.getElementById('ocrText');
+  const resultArea = document.getElementById('resultArea');
+
+  // Quando carichi immagine, la mostro e lancio OCR automatico
+  imageInput.addEventListener('change', () => {
+    const file = imageInput.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      imgPreview.src = e.target.result;
+      ocrText.value = "OCR in corso...";
+      Tesseract.recognize(
+        e.target.result,
+        'ita',
+        { logger: m => console.log(m) }
+      ).then(({ data: { text } }) => {
+        ocrText.value = text;
+      }).catch(err => {
+        ocrText.value = "";
+        alert("Errore OCR: " + err);
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+
   // Funzione base per parsare il testo OCR e estrarre i dati richiesti
-  // (Questo è un esempio semplice e da migliorare)
   function extractData(text) {
-    // Pulizia base: rimuove righe vuote e split per righe
     const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    // Ordine parametri (riga per riga) da riconoscere, secondo istruzioni utente
-    // PA (sistolica e diastolica nella stessa riga, separate da spazio o slash)
-    // MAP
-    // Fc ritmo
-    // PVC
-    // PAP max, min, media (3 righe consecutive)
-    // T perif/int
-    // Sat O2
-    // (saltare 4 righe)
-    // Diuresi oraria
 
     let result = [];
     let i = 0;
 
     function parseNumbersFromLine(line) {
-      // Prende i numeri in ordine dalla linea
       let nums = line.match(/-?[\d.,]+/g);
       if (!nums) return [];
-      // Normalizza la virgola in punto
       nums = nums.map(n => n.replace(',', '.'));
       return nums;
     }
 
-    // Trovo la riga PA e ricavo sistolica e diastolica (prima due numeri)
     while (i < lines.length) {
       const l = lines[i];
-      // Cerco la riga PA, o quella che contiene almeno 2 numeri per PA
       const nums = parseNumbersFromLine(l);
       if (nums.length >= 2) {
-        // Potrebbe essere PA, salvo e passo
-        // Rimuovo eventuali etichette a sx
         result.push(['PA_sist', nums[0]]);
         result.push(['PA_diast', nums[1]]);
         i++;
@@ -92,7 +105,6 @@
       i++;
     }
 
-    // MAP
     while (i < lines.length) {
       const l = lines[i];
       const nums = parseNumbersFromLine(l);
@@ -104,7 +116,6 @@
       i++;
     }
 
-    // Fc ritmo
     while (i < lines.length) {
       const l = lines[i];
       const nums = parseNumbersFromLine(l);
@@ -116,7 +127,6 @@
       i++;
     }
 
-    // PVC
     while (i < lines.length) {
       const l = lines[i];
       const nums = parseNumbersFromLine(l);
@@ -128,7 +138,6 @@
       i++;
     }
 
-    // PAP max, min, media (3 righe consecutive)
     let papValues = [];
     while (i < lines.length && papValues.length < 3) {
       const l = lines[i];
@@ -146,7 +155,6 @@
       result.push(['PAP_media', papValues[2]]);
     }
 
-    // T perif/int
     while (i < lines.length) {
       const l = lines[i];
       const nums = parseNumbersFromLine(l);
@@ -158,10 +166,8 @@
       i++;
     }
 
-    // Sat O2
     while (i < lines.length) {
       const l = lines[i];
-      // Prendo primo numero o %
       let percMatch = l.match(/(\d+)%/);
       if (percMatch) {
         result.push(['Sat_O2', percMatch[1]]);
@@ -171,10 +177,8 @@
       i++;
     }
 
-    // Salto 4 righe
     i += 4;
 
-    // Diuresi oraria
     while (i < lines.length) {
       const l = lines[i];
       const nums = parseNumbersFromLine(l);
@@ -185,21 +189,24 @@
       i++;
     }
 
-    // Ora strutturo il risultato in tabella con intestazioni
-    // Prima colonna Parametro, poi valori (qui numeri in ordine)
-
-    // Transpose: dal formato [ [param, val], ... ] a righe e colonne
-    // ma per ora ogni parametro ha un solo valore estratto: mettiamo 1 colonna valore
-
     let output = "Parametro\tValore\n";
     for (let r of result) {
       output += r[0] + "\t" + r[1] + "\n";
     }
-
     return output;
   }
 
-  // Salvataggio esempi in localStorage
+  document.getElementById('extractBtn').addEventListener('click', () => {
+    const text = ocrText.value.trim();
+    if (!text) {
+      alert("Testo OCR vuoto");
+      return;
+    }
+    const extracted = extractData(text);
+    resultArea.textContent = extracted;
+  });
+
+  // Allenamento e salvataggio esempi in localStorage
   function saveExample(ocr, data) {
     let ex = JSON.parse(localStorage.getItem('trainingExamples') || "[]");
     ex.push({ocr: ocr, data: data});
@@ -207,7 +214,6 @@
     renderExamples();
   }
 
-  // Mostra esempi salvati
   function renderExamples() {
     let ex = JSON.parse(localStorage.getItem('trainingExamples') || "[]");
     let container = document.getElementById('examplesContainer');
@@ -221,16 +227,6 @@
     });
   }
 
-  document.getElementById('extractBtn').addEventListener('click', () => {
-    const ocr = document.getElementById('ocrText').value;
-    if (!ocr.trim()) {
-      alert("Incolla il testo OCR per procedere");
-      return;
-    }
-    const extracted = extractData(ocr);
-    document.getElementById('resultArea').textContent = extracted;
-  });
-
   document.getElementById('saveExampleBtn').addEventListener('click', () => {
     const trainOCR = document.getElementById('trainOCR').value.trim();
     const trainData = document.getElementById('trainData').value.trim();
@@ -243,10 +239,10 @@
     document.getElementById('trainData').value = "";
   });
 
-  // Al caricamento pagina mostra esempi salvati
   window.onload = () => {
     renderExamples();
   }
 </script>
 </body>
 </html>
+
