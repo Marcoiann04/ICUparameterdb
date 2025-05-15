@@ -2,89 +2,85 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>Estrazione Parametri ICU</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <title>Estrazione parametri ICU</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/tesseract.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    h1 { font-size: 1.5em; }
-    input[type="file"] { margin-bottom: 10px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-    th { background-color: #f2f2f2; }
-    #output { white-space: pre-wrap; background: #eee; padding: 10px; margin-top: 20px; }
+    body { font-family: sans-serif; padding: 2em; }
+    textarea, pre { width: 100%; min-height: 100px; margin-top: 1em; font-family: monospace; }
+    #output { background: #f0f0f0; padding: 1em; white-space: pre-wrap; }
   </style>
 </head>
 <body>
-  <h1>Estrazione Parametri da Immagine (ICU)</h1>
-  <input type="file" id="imageInput" accept="image/*">
-  <button onclick="processImage()">Estrai Dati</button>
-  <div id="loading"></div>
+  <h1>Estrazione parametri ICU da immagine</h1>
+
+  <input type="file" id="imageInput">
+  <button onclick="processImage()">Estrai parametri</button>
+
   <div id="output"></div>
-  <table id="dataTable" style="display: none">
-    <thead>
-      <tr>
-        <th>Parametro</th>
-        <th>Valore</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
 
-<script>
-async function processImage() {
-  const imageInput = document.getElementById('imageInput');
-  const loading = document.getElementById('loading');
-  const output = document.getElementById('output');
-  const table = document.getElementById('dataTable');
-  const tbody = table.querySelector('tbody');
+  <script>
+    async function processImage() {
+      const file = document.getElementById('imageInput').files[0];
+      if (!file) return alert('Carica prima un'immagine');
 
-  if (!imageInput.files.length) {
-    alert("Seleziona un'immagine.");
-    return;
-  }
+      document.getElementById('output').textContent = 'Estrazione in corso...';
 
-  loading.innerText = "Estrazione in corso...";
-  output.innerText = "";
-  table.style.display = 'none';
-  tbody.innerHTML = "";
+      const result = await Tesseract.recognize(file, 'eng', {
+        tessedit_char_whitelist: '0123456789.,:/°%+-MmHgLlABCDEFabcdef',
+      });
 
-  const worker = await Tesseract.createWorker();
-  await worker.loadLanguage('ita');
-  await worker.initialize('ita');
+      let text = result.data.text.trim();
+      const rows = text.split(/\n+/).map(r => r.trim()).filter(Boolean);
 
-  const {
-    data: { text }
-  } = await worker.recognize(imageInput.files[0]);
+      // Ordine logico dei parametri
+      const parametriEstratti = {
+        "PA Max": "",
+        "PA Min": "",
+        "MAP": "",
+        "FC Ritmo": "",
+        "PVC": "",
+        "PAP Max": "",
+        "PAP Min": "",
+        "PAP Media": "",
+        "T Perif": "",
+        "T Int": "",
+        "Sat O2": "",
+        "Diuresi oraria": ""
+      };
 
-  await worker.terminate();
+      // Rimuovi righe inutili: mantieni solo le righe 0-6 e l'ultima
+      const righeUtili = [...rows.slice(0, 7), rows.at(-1)];
 
-  output.innerText = text;
-  loading.innerText = "";
+      // Popola la mappa parametri in ordine
+      const nomi = Object.keys(parametriEstratti);
+      for (let i = 0; i < nomi.length && i < righeUtili.length; i++) {
+        parametriEstratti[nomi[i]] = righeUtili[i];
+      }
 
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+      // Se PA ha forma 120/80 separa max/min
+      const paMatch = righeUtili[0].match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
+      if (paMatch) {
+        parametriEstratti["PA Max"] = paMatch[1];
+        parametriEstratti["PA Min"] = paMatch[2];
+      }
 
-  const parsedValues = {
-    "PA Max/Min": lines[0] || '',
-    "MAP": lines[1] || '',
-    "FC Ritmo": lines[2] || '',
-    "PVC": lines[3] || '',
-    "PAP Max": lines[4] || '',
-    "PAP Min": lines[5] || '',
-    "PAP Media": lines[6] || '',
-    "T Perif/Int": lines[7] || '',
-    "Sat O2": lines[8] || '',
-    "Diuresi oraria": lines[13] || '' // 4 righe ignorate tra Sat O2 e Diuresi
-  };
+      // Se PAP ha 3 numeri, estrai da riga 4
+      const papLine = righeUtili[4];
+      const papMatch = papLine?.match(/(\d{2,3}).*?(\d{2,3}).*?(\d{2,3})/);
+      if (papMatch) {
+        parametriEstratti["PAP Max"] = papMatch[1];
+        parametriEstratti["PAP Min"] = papMatch[2];
+        parametriEstratti["PAP Media"] = papMatch[3];
+      }
 
-  for (const [param, value] of Object.entries(parsedValues)) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${param}</td><td>${value}</td>`;
-    tbody.appendChild(tr);
-  }
+      // Mostra in formato copiabile Excel (tabulato)
+      let risultato = Object.keys(parametriEstratti)
+        .map(k => `${k}\t${parametriEstratti[k]}`)
+        .join('\n');
 
-  table.style.display = 'table';
-}
-</script>
+      document.getElementById('output').textContent = risultato;
+    }
+  </script>
 </body>
 </html>
 
