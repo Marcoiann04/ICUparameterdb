@@ -1,91 +1,85 @@
-
-
-
-
 <!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione Parametri OCR</title>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+<title>Estrazione Parametri Vitali OCR</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; }
-  textarea { width: 100%; height: 150px; }
-  pre { background: #f4f4f4; padding: 10px; white-space: pre-wrap; word-wrap: break-word; }
+  table { border-collapse: collapse; margin-top: 20px; width: 100%; max-width: 600px; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: center; }
+  th { background-color: #eee; }
+  #output { margin-top: 20px; }
+  #error { color: red; margin-top: 10px; }
 </style>
 </head>
 <body>
 
-<h2>Carica immagine con parametri</h2>
-<input type="file" id="imageInput" accept="image/*" />
-<button id="startOcr">Estrai e Mostra</button>
+<h1>Estrazione Parametri Vitali OCR</h1>
 
-<h3>Risultato estrazione</h3>
-<pre id="resultArea">Nessun risultato ancora.</pre>
+<input type="file" id="imgInput" accept="image/*" />
+<button id="btnExtract">Estrai e Mostra</button>
+<div id="error"></div>
+
+<div id="output"></div>
 
 <script>
-// Funzione di estrazione parametri dal testo OCR
-function parseOcrText(text) {
-  const keys = [
+  const parametri = [
     "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
     "PAP Max", "PAP Min", "PAP Media", "Temperatura",
     "Sat O2", "Diuresi oraria"
   ];
 
-  let lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  let allNumbers = [];
+  const imgInput = document.getElementById('imgInput');
+  const btnExtract = document.getElementById('btnExtract');
+  const output = document.getElementById('output');
+  const errorDiv = document.getElementById('error');
 
-  for(let line of lines) {
-    let nums = line.match(/\d+[.,]?\d*/g);
-    if(nums) {
-      nums = nums.map(n => n.replace(',', '.'));
-      allNumbers.push(...nums);
+  btnExtract.addEventListener('click', () => {
+    errorDiv.textContent = '';
+    output.innerHTML = '';
+
+    if (!imgInput.files || imgInput.files.length === 0) {
+      errorDiv.textContent = 'Seleziona un’immagine prima di procedere.';
+      return;
     }
-  }
 
-  if(allNumbers.length < keys.length) return null;
+    const file = imgInput.files[0];
 
-  let extracted = {};
-  for(let i=0; i<keys.length; i++) {
-    extracted[keys[i]] = allNumbers[i];
-  }
-  return extracted;
-}
+    Tesseract.recognize(file, 'ita')
+      .then(({ data: { text } }) => {
+        if (!text || typeof text !== 'string') {
+          throw new Error('Testo OCR non rilevato o non valido.');
+        }
 
-function formatExtracted(extracted) {
-  if(!extracted) return "Nessun dato estratto o dati insufficienti.";
-  let header = Object.keys(extracted).join('\t');
-  let values = Object.values(extracted).join('\t');
-  return header + '\n' + values;
-}
+        // Estrai TUTTI i numeri (con virgola o punto decimale)
+        const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
 
-document.getElementById('startOcr').addEventListener('click', () => {
-  let fileInput = document.getElementById('imageInput');
-  let resultArea = document.getElementById('resultArea');
-  if(fileInput.files.length === 0) {
-    alert("Seleziona prima un'immagine.");
-    return;
-  }
-  resultArea.textContent = "OCR in corso, attendi...";
-  let file = fileInput.files[0];
+        if (!numeri || numeri.length === 0) {
+          throw new Error('Nessun numero trovato nel testo OCR.');
+        }
 
-  Tesseract.recognize(
-    file,
-    'ita',
-    { logger: m => console.log(m) }
-  ).then(({ data: { text } }) => {
-    console.log("Testo OCR grezzo:", text);
-    let estratto = parseOcrText(text);
-    let output = formatExtracted(estratto);
-    resultArea.textContent = output;
-  }).catch(err => {
-    console.error(err);
-    resultArea.textContent = "Errore durante l'OCR.";
+        // Normalizza virgole in punti e limita alla quantità di parametri
+        const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
+
+        // Crea tabella con parametri e valori estratti (se manca un valore, metti vuoto)
+        let html = '<table><thead><tr><th>Parametro</th><th>Valore</th></tr></thead><tbody>';
+        for (let i = 0; i < parametri.length; i++) {
+          html += `<tr><td>${parametri[i]}</td><td>${valori[i] || ''}</td></tr>`;
+        }
+        html += '</tbody></table>';
+
+        output.innerHTML = html;
+      })
+      .catch(err => {
+        errorDiv.textContent = 'Errore durante l\'OCR: ' + err.message;
+        console.error('Errore OCR:', err);
+      });
   });
-});
 </script>
 
 </body>
 </html>
+
 
