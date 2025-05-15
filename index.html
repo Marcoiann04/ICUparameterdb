@@ -1,64 +1,90 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <title>Test Google Vision API Text Detection</title>
+  <meta charset="UTF-8">
+  <title>Estrazione Parametri ICU</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h1 { font-size: 1.5em; }
+    input[type="file"] { margin-bottom: 10px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background-color: #f2f2f2; }
+    #output { white-space: pre-wrap; background: #eee; padding: 10px; margin-top: 20px; }
+  </style>
 </head>
 <body>
-  <h1>Carica immagine e ottieni testo con Google Vision API</h1>
+  <h1>Estrazione Parametri da Immagine (ICU)</h1>
+  <input type="file" id="imageInput" accept="image/*">
+  <button onclick="processImage()">Estrai Dati</button>
+  <div id="loading"></div>
+  <div id="output"></div>
+  <table id="dataTable" style="display: none">
+    <thead>
+      <tr>
+        <th>Parametro</th>
+        <th>Valore</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
-  <input type="file" id="fileInput" accept="image/*" />
-  <button id="analyzeBtn">Analizza immagine</button>
+<script>
+async function processImage() {
+  const imageInput = document.getElementById('imageInput');
+  const loading = document.getElementById('loading');
+  const output = document.getElementById('output');
+  const table = document.getElementById('dataTable');
+  const tbody = table.querySelector('tbody');
 
-  <h2>Risultato testo riconosciuto:</h2>
-  <pre id="resultText" style="background:#eee; padding:10px; white-space: pre-wrap;"></pre>
+  if (!imageInput.files.length) {
+    alert("Seleziona un'immagine.");
+    return;
+  }
 
-  <script>
-    const apiKey = "AIzaSyBqx2gLKQVIrBtPH92lkkmh7glhAiLnmRc";
+  loading.innerText = "Estrazione in corso...";
+  output.innerText = "";
+  table.style.display = 'none';
+  tbody.innerHTML = "";
 
-    let base64Image = "";
+  const worker = await Tesseract.createWorker();
+  await worker.loadLanguage('ita');
+  await worker.initialize('ita');
 
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-      const file = e.target.files[0];
-      if (!file) return alert("Seleziona un'immagine!");
+  const {
+    data: { text }
+  } = await worker.recognize(imageInput.files[0]);
 
-      const reader = new FileReader();
-      reader.onload = function(evt) {
-        base64Image = evt.target.result.split(',')[1]; // togli il prefix
-        console.log("Immagine convertita in base64");
-      };
-      reader.readAsDataURL(file);
-    });
+  await worker.terminate();
 
-    document.getElementById('analyzeBtn').addEventListener('click', async () => {
-      if (!base64Image) return alert("Carica prima un'immagine!");
+  output.innerText = text;
+  loading.innerText = "";
 
-      const url = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
-      const body = {
-        requests: [{
-          image: { content: base64Image },
-          features: [{ type: "TEXT_DETECTION" }]
-        }]
-      };
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-const data = await response.json();
-console.log("Risposta API:", data);
+  const parsedValues = {
+    "PA Max/Min": lines[0] || '',
+    "MAP": lines[1] || '',
+    "FC Ritmo": lines[2] || '',
+    "PVC": lines[3] || '',
+    "PAP Max": lines[4] || '',
+    "PAP Min": lines[5] || '',
+    "PAP Media": lines[6] || '',
+    "T Perif/Int": lines[7] || '',
+    "Sat O2": lines[8] || '',
+    "Diuresi oraria": lines[13] || '' // 4 righe ignorate tra Sat O2 e Diuresi
+  };
 
-if (data.responses && data.responses[0].fullTextAnnotation) {
-  document.getElementById('resultText').textContent = data.responses[0].fullTextAnnotation.text;
-} else if (data.error) {
-  document.getElementById('resultText').textContent = `Errore API: ${data.error.message}`;
-} else {
-  document.getElementById('resultText').textContent = "Nessun testo rilevato o errore.";
+  for (const [param, value] of Object.entries(parsedValues)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${param}</td><td>${value}</td>`;
+    tbody.appendChild(tr);
+  }
+
+  table.style.display = 'table';
 }
-
-  
-    });
-  </script>
+</script>
 </body>
 </html>
+
