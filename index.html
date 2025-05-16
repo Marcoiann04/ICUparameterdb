@@ -1,173 +1,113 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>OCR Parametri Clinici</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+  <meta charset="UTF-8">
+  <title>Estrazione Parametri Vitali</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #dropArea {
-      border: 2px dashed #ccc;
-      padding: 20px;
-      text-align: center;
-      margin-bottom: 20px;
-    }
-    #output {
-      white-space: pre;
-      background: #f9f9f9;
-      padding: 10px;
-      border: 1px solid #ccc;
-    }
-    #imgPreview { max-width: 100%; margin-top: 10px; }
-    select, button, input { margin: 10px 0; }
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    textarea { width: 100%; height: 100px; font-family: monospace; margin-top: 10px; }
+    #dropZone { border: 2px dashed #ccc; padding: 30px; text-align: center; margin-bottom: 20px; }
+    select, button { margin-top: 10px; padding: 5px 10px; }
   </style>
 </head>
 <body>
+  <h2>Estrazione parametri vitali da immagine (OCR)</h2>
 
-<h2>OCR Parametri Clinici</h2>
+  <div id="dropZone">
+    Incolla o trascina un'immagine contenente <b>una riga di parametri</b>
+  </div>
 
-<label for="paramType">Che tipo di parametri contiene l'immagine?</label><br/>
-<select id="paramType">
-  <option value="pa">PA (Max/Min)</option>
-  <option value="map">MAP</option>
-  <option value="fc">FC</option>
-  <option value="temp">Temperatura</option>
-  <option value="diuresi">Diuresi</option>
-  <option value="pap">PAP (Max/Min/Media)</option>
-</select>
+  <label for="tipo">Tipo di parametro:</label>
+  <select id="tipo">
+    <option value="FC">Frequenza Cardiaca (FC)</option>
+    <option value="PA">Pressione Arteriosa (PA)</option>
+    <option value="MAP">MAP</option>
+    <option value="Temp">Temperatura</option>
+    <option value="Diuresi">Diuresi</option>
+  </select>
 
-<div id="dropArea">Trascina qui l'immagine o incollala (Ctrl+V)</div>
-<input type="file" id="imgInput" accept="image/*" />
-<br/>
-<button id="processBtn">Estrai valori</button>
+  <button onclick="elabora()">Estrai valori</button>
 
-<h3>Output copiabile (Tabulato):</h3>
-<pre id="output"></pre>
-<img id="imgPreview" />
+  <textarea id="output" placeholder="Valori estratti qui..."></textarea>
 
-<script>
-  let imageBlob = null;
-  const output = document.getElementById('output');
-  const imgPreview = document.getElementById('imgPreview');
-  const dropArea = document.getElementById('dropArea');
+  <canvas id="canvas" style="display:none;"></canvas>
+  <img id="image" style="display:none;" />
 
-  function handleImage(file) {
-    imageBlob = file;
-    imgPreview.src = URL.createObjectURL(file);
-    output.textContent = '';
-  }
+  <script>
+    let img = new Image();
 
-  document.getElementById('imgInput').addEventListener('change', e => {
-    if (e.target.files.length) handleImage(e.target.files[0]);
-  });
-
-  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.style.borderColor = 'green'; });
-  dropArea.addEventListener('dragleave', () => dropArea.style.borderColor = '#ccc');
-  dropArea.addEventListener('drop', e => {
-    e.preventDefault();
-    if (e.dataTransfer.files.length) handleImage(e.dataTransfer.files[0]);
-  });
-
-  document.addEventListener('paste', e => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        handleImage(file);
-        break;
+    const dropZone = document.getElementById('dropZone');
+    dropZone.addEventListener('paste', (event) => {
+      const items = (event.clipboardData || event.originalEvent.clipboardData).items;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf("image") === 0) {
+          const blob = items[i].getAsFile();
+          const reader = new FileReader();
+          reader.onload = function (event) {
+            img.src = event.target.result;
+            document.getElementById('image').src = img.src;
+          };
+          reader.readAsDataURL(blob);
+        }
       }
-    }
-  });
+    });
 
-  document.getElementById('processBtn').addEventListener('click', async () => {
-    if (!imageBlob) {
-      alert('Inserisci un\'immagine prima.');
-      return;
-    }
+    async function elabora() {
+      const tipo = document.getElementById('tipo').value;
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
 
-    const tipo = document.getElementById('paramType').value;
-    output.textContent = 'Estrazione in corso...';
+      // Preprocessing canvas
+      canvas.width = img.width * 2;
+      canvas.height = img.height * 2;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    try {
-      
-      const canvas = document.createElement('canvas');
-const ctx = canvas.getContext('2d');
-canvas.width = img.width * 2;  // Scaling up for clarity
-canvas.height = img.height * 2;
-ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        const value = avg > 180 ? 255 : 0;
+        data[i] = data[i + 1] = data[i + 2] = value;
+      }
+      ctx.putImageData(imageData, 0, 0);
 
-// Preprocessing: contrast + grayscale
-const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-const data = imageData.data;
-for (let i = 0; i < data.length; i += 4) {
-  const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-  const value = avg > 180 ? 255 : 0; // thresholding
-  data[i] = data[i + 1] = data[i + 2] = value;
-}
-ctx.putImageData(imageData, 0, 0);
+      // OCR
+      const { data: { text: rawText } } = await Tesseract.recognize(
+        canvas,
+        'eng',
+        { logger: m => console.log(m) }
+      );
 
-// Esegui OCR sul canvas migliorato
-const { data: { text: rawText } } = await Tesseract.recognize(
-  canvas,
-  'eng',
-  { logger: m => console.log(m) }
-);
+      // Pulizia testo
+      const cleaned = rawText.replace(/[^\d\s]/g, '').trim();
+      const numbers = cleaned.split(/\s+/).map(n => n.trim()).filter(n => /^\d+$/.test(n));
 
-      const rawText = result.data.text.replace(/\s+/g, ' ').trim();
-      const numeri = (rawText.match(/[\d]{1,3}[.,]?\d{0,2}/g) || []).map(v => v.replace('.', ','));
+      let valori = [];
 
-      let finalOutput = '-';
-
-      switch (tipo) {
-        case 'pa': {
-          const pa1 = numeri[0] || '-';
-          const pa2 = numeri[1] || '-';
-          finalOutput = `${pa1}\n${pa2}`;
-          break;
+      if (tipo === 'PA') {
+        for (let val of numbers) {
+          const max = val.length >= 4 ? val.slice(0, 2) : "-";
+          const min = val.length >= 4 ? val.slice(2) : "-";
+          valori.push(`${max}\n${min}`);
         }
-        case 'map': {
-          finalOutput = numeri[0] || '-';
-          break;
+      } else if (tipo === 'Temp') {
+        for (let val of numbers) {
+          if (val.length === 4 && val.startsWith('3')) {
+            valori.push(val.slice(0, 2) + ',' + val.slice(2));
+          } else {
+            valori.push('-');
+          }
         }
-       case 'fc': {
-  const fcValues = numeri.filter(n => {
-    const num = parseInt(n.replace(',', '.'));
-    return num >= 20 && num <= 250;
-  });
-  finalOutput = fcValues.length ? fcValues.join('\t') : '-';
-  break;
-}
-
-        case 'temp': {
-          let temp = numeri.find(n => parseFloat(n.replace(',', '.')) >= 30 && parseFloat(n.replace(',', '.')) <= 45);
-          finalOutput = temp || '-';
-          break;
-        }
-        case 'diuresi': {
-          let diu = numeri.find(n => parseFloat(n.replace(',', '.')) < 1000);
-          finalOutput = diu || '-';
-          break;
-        }
-        case 'pap': {
-          const max = numeri[0] || '-';
-          const min = numeri[1] || '-';
-          const media = numeri[2] || '-';
-          finalOutput = `${max}\t${min}\t${media}`;
-          break;
+      } else {
+        for (let val of numbers) {
+          valori.push(val || "-");
         }
       }
 
-      output.textContent = finalOutput;
-
-    } catch (err) {
-      output.textContent = 'Errore durante l\'OCR.';
-      console.error(err);
+      // Output finale con tab
+      document.getElementById('output').value = valori.join('\t');
     }
-  });
-  document.getElementById('output').textContent = `OCR RAW:\n${rawText}\n\nRisultato:\n${finalOutput}`;
-
-</script>
-
+  </script>
 </body>
 </html>
