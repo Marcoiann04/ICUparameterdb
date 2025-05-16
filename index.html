@@ -20,11 +20,22 @@
       border: 1px solid #ccc;
     }
     #imgPreview { max-width: 100%; margin-top: 10px; }
+    select, button, input { margin: 10px 0; }
   </style>
 </head>
 <body>
 
-<h2>OCR Parametri Clinici - Incolla o carica un’immagine</h2>
+<h2>OCR Parametri Clinici</h2>
+
+<label for="paramType">Che tipo di parametri contiene l'immagine?</label><br/>
+<select id="paramType">
+  <option value="pa">PA (Max/Min)</option>
+  <option value="map">MAP</option>
+  <option value="fc">FC</option>
+  <option value="temp">Temperatura</option>
+  <option value="diuresi">Diuresi</option>
+  <option value="pap">PAP (Max/Min/Media)</option>
+</select>
 
 <div id="dropArea">Trascina qui l'immagine o incollala (Ctrl+V)</div>
 <input type="file" id="imgInput" accept="image/*" />
@@ -51,7 +62,6 @@
     if (e.target.files.length) handleImage(e.target.files[0]);
   });
 
-  // Drag and Drop
   dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.style.borderColor = 'green'; });
   dropArea.addEventListener('dragleave', () => dropArea.style.borderColor = '#ccc');
   dropArea.addEventListener('drop', e => {
@@ -59,7 +69,6 @@
     if (e.dataTransfer.files.length) handleImage(e.dataTransfer.files[0]);
   });
 
-  // Paste from clipboard
   document.addEventListener('paste', e => {
     const items = e.clipboardData.items;
     for (let i = 0; i < items.length; i++) {
@@ -77,30 +86,51 @@
       return;
     }
 
+    const tipo = document.getElementById('paramType').value;
     output.textContent = 'Estrazione in corso...';
 
     try {
       const result = await Tesseract.recognize(imageBlob, 'ita', { logger: m => console.log(m) });
-      const rawText = result.data.text;
-
-      // Estrai tutti i numeri o sostituti, compresi i formati con virgola o punto
+      const rawText = result.data.text.replace(/\s+/g, ' ').trim();
       const numeri = (rawText.match(/[\d]{1,3}[.,]?\d{0,2}/g) || []).map(v => v.replace('.', ','));
 
-      // Adatta alla tua logica: PA Max/Min, MAP, FC, Temp, Diuresi ecc.
-      let [pa1, pa2, map, fc, temp, diuresi] = ['-', '-', '-', '-', '-', '-'];
+      let finalOutput = '-';
 
-      if (numeri.length >= 2) {
-        pa1 = numeri[0];
-        pa2 = numeri[1];
+      switch (tipo) {
+        case 'pa': {
+          const pa1 = numeri[0] || '-';
+          const pa2 = numeri[1] || '-';
+          finalOutput = `${pa1}\n${pa2}`;
+          break;
+        }
+        case 'map': {
+          finalOutput = numeri[0] || '-';
+          break;
+        }
+        case 'fc': {
+          finalOutput = numeri[0] || '-';
+          break;
+        }
+        case 'temp': {
+          let temp = numeri.find(n => parseFloat(n.replace(',', '.')) >= 30 && parseFloat(n.replace(',', '.')) <= 45);
+          finalOutput = temp || '-';
+          break;
+        }
+        case 'diuresi': {
+          let diu = numeri.find(n => parseFloat(n.replace(',', '.')) < 1000);
+          finalOutput = diu || '-';
+          break;
+        }
+        case 'pap': {
+          const max = numeri[0] || '-';
+          const min = numeri[1] || '-';
+          const media = numeri[2] || '-';
+          finalOutput = `${max}\t${min}\t${media}`;
+          break;
+        }
       }
-      if (numeri.length >= 3) map = numeri[2];
-      if (numeri.length >= 4) fc = numeri[3];
-      if (numeri.length >= 5) temp = numeri[4];
-      if (numeri.length >= 6) diuresi = numeri[5];
 
-      // Output tabulato: PA in una cella con a capo i due valori
-      const tabulato = `${pa1}\n${pa2}\t${map}\t${fc}\t${temp}\t${diuresi}`;
-      output.textContent = tabulato;
+      output.textContent = finalOutput;
 
     } catch (err) {
       output.textContent = 'Errore durante l\'OCR.';
