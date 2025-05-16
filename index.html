@@ -107,10 +107,15 @@
           finalOutput = numeri[0] || '-';
           break;
         }
-        case 'fc': {
-          finalOutput = numeri[0] || '-';
-          break;
-        }
+       case 'fc': {
+  const fcValues = numeri.filter(n => {
+    const num = parseInt(n.replace(',', '.'));
+    return num >= 20 && num <= 250;
+  });
+  finalOutput = fcValues.length ? fcValues.join('\t') : '-';
+  break;
+}
+
         case 'temp': {
           let temp = numeri.find(n => parseFloat(n.replace(',', '.')) >= 30 && parseFloat(n.replace(',', '.')) <= 45);
           finalOutput = temp || '-';
@@ -137,6 +142,8 @@
       console.error(err);
     }
   });
+  document.getElementById('output').textContent = `OCR RAW:\n${rawText}\n\nRisultato:\n${finalOutput}`;
+
 </script>
 
 </body>
