@@ -1,136 +1,63 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Estrazione Parametri Vitali OCR + Correzione</title>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-<style>
-  body { font-family: Arial, sans-serif; margin: 20px; max-width: 700px; }
-  textarea, input, button { font-size: 1rem; margin-top: 10px; width: 100%; box-sizing: border-box; }
-  #ocrOutput { white-space: pre-wrap; margin-top: 20px; background: #f9f9f9; padding: 10px; border: 1px solid #ccc; min-height: 80px; font-family: monospace; }
-  #message { margin-top: 10px; font-weight: bold; }
-  #error { color: red; margin-top: 10px; }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OCR Valori Tabulati</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
+    input, button, textarea { font-size: 1rem; width: 100%; margin-top: 10px; }
+    #output { white-space: pre; font-family: monospace; margin-top: 20px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; }
+    .hidden { display: none; }
+  </style>
 </head>
 <body>
 
-<h1>Estrazione Parametri Vitali OCR + Correzione</h1>
+<h2>Estrai Valori da Screenshot</h2>
 
 <input type="file" id="imgInput" accept="image/*" />
-<button id="btnExtract">Estrai e Mostra</button>
-<div id="error"></div>
+<button id="btnExtract">Estrai Valori</button>
 
-<div>
-  <h3>Valori estratti (tab separati, copiabili):</h3>
-  <div id="ocrOutput"></div>
-</div>
-
-<div>
-  <h3>Inserisci i dati corretti (tab separati):</h3>
-  <textarea id="correctInput" rows="3" placeholder="Incolla qui i dati corretti separati da tab..."></textarea>
-  <button id="btnSendCorrect">Invia Dati Corretti</button>
-</div>
-
-<div id="message"></div>
+<div id="output"></div>
 
 <script>
-  // Parametri nell'ordine richiesto
-  const parametri = [
-    "PA Max", "PA Min", "MAP", "FC Ritmo", "PVC",
-    "PAP Max", "PAP Min", "PAP Media", "Temperatura",
-    "Sat O2", "Diuresi oraria"
-  ];
+  document.getElementById('btnExtract').addEventListener('click', async () => {
+    const fileInput = document.getElementById('imgInput');
+    const output = document.getElementById('output');
+    output.textContent = "Estrazione in corso...";
 
-  // Firebase config
-  const firebaseConfig = {
-    apiKey: "AIzaSyDMwhn0T4E9MjFIPjtoDaEBn2J6B3c9Zc8",
-    authDomain: "icuparameters.firebaseapp.com",
-    projectId: "icuparameters",
-    storageBucket: "icuparameters.firebasestorage.app",
-    messagingSenderId: "967179535774",
-    appId: "1:967179535774:web:5f1e077c8a37c5822f828f"
-  };
-
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-
-  const imgInput = document.getElementById('imgInput');
-  const btnExtract = document.getElementById('btnExtract');
-  const btnSendCorrect = document.getElementById('btnSendCorrect');
-  const ocrOutput = document.getElementById('ocrOutput');
-  const correctInput = document.getElementById('correctInput');
-  const errorDiv = document.getElementById('error');
-  const message = document.getElementById('message');
-
-  let lastOCRValues = ""; // stringa tabulata degli ultimi valori OCR estratti
-
-  btnExtract.addEventListener('click', () => {
-    errorDiv.textContent = "";
-    message.textContent = "";
-    ocrOutput.textContent = "";
-    correctInput.value = "";
-
-    if (!imgInput.files || imgInput.files.length === 0) {
-      errorDiv.textContent = "Seleziona un’immagine prima di procedere.";
+    if (!fileInput.files || fileInput.files.length === 0) {
+      output.textContent = "Seleziona un'immagine.";
       return;
     }
 
-    const file = imgInput.files[0];
-    Tesseract.recognize(file, 'ita')
-      .then(({ data: { text } }) => {
-        if (!text || typeof text !== 'string') {
-          throw new Error('Testo OCR non rilevato o non valido.');
-        }
+    const file = fileInput.files[0];
 
-        // Estrai TUTTI i numeri (con virgola o punto decimale)
-        const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
-
-        if (!numeri || numeri.length < parametri.length) {
-          throw new Error('Dati insufficienti estratti dal testo OCR.');
-        }
-
-        // Normalizza virgole in punti e limita alla quantità di parametri
-        const valori = numeri.map(n => n.replace(',', '.')).slice(0, parametri.length);
-
-        // Crea stringa tabulata solo con i valori (no nomi)
-        lastOCRValues = valori.join('\t');
-
-        ocrOutput.textContent = lastOCRValues;
-      })
-      .catch(err => {
-        errorDiv.textContent = "Errore durante l'OCR: " + err.message;
-        console.error("Errore OCR:", err);
+    try {
+      const result = await Tesseract.recognize(file, 'ita', {
+        logger: m => console.log(m)
       });
-  });
 
-  btnSendCorrect.addEventListener('click', () => {
-    const datiCorretti = correctInput.value.trim();
-    if (!datiCorretti) {
-      message.textContent = "Inserisci prima i dati corretti.";
-      return;
+      const text = result.data.text;
+
+      // Estrai solo numeri (anche con virgola o punto)
+      const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
+      if (!numeri || numeri.length === 0) {
+        output.textContent = "Nessun numero rilevato.";
+        return;
+      }
+
+      const tabulati = numeri.map(n => n.replace(',', '.')).join('\t');
+      output.textContent = tabulati;
+
+    } catch (err) {
+      output.textContent = "Errore nell'elaborazione OCR: " + err.message;
+      console.error(err);
     }
-    if (!lastOCRValues) {
-      message.textContent = "Prima estrai i dati OCR.";
-      return;
-    }
-
-    const idDoc = "correzione_" + Date.now();
-
-    db.collection("dati_corretti").doc(idDoc).set({
-      estrattoOCR: lastOCRValues,
-      datiCorretti: datiCorretti,
-      timestamp: firebase.firestore.FieldValue.serverTimestamp()
-    }).then(() => {
-      message.textContent = "Dati corretti inviati con successo!";
-      correctInput.value = "";
-    }).catch((error) => {
-      message.textContent = "Errore invio dati corretti: " + error.message;
-    });
   });
 </script>
 
 </body>
 </html>
+
