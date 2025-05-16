@@ -2,106 +2,112 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OCR Valori Tabulati</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>OCR Parametri Clinici</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      max-width: 600px;
-      margin: 40px auto;
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #dropArea {
+      border: 2px dashed #ccc;
       padding: 20px;
-    }
-    input, button, textarea {
-      font-size: 1rem;
-      width: 100%;
-      margin-top: 10px;
+      text-align: center;
+      margin-bottom: 20px;
     }
     #output {
       white-space: pre;
-      font-family: monospace;
-      margin-top: 20px;
+      background: #f9f9f9;
       padding: 10px;
       border: 1px solid #ccc;
-      background: #f9f9f9;
     }
-    #dropArea {
-      border: 2px dashed #aaa;
-      padding: 20px;
-      text-align: center;
-      color: #777;
-      margin-top: 20px;
-    }
+    #imgPreview { max-width: 100%; margin-top: 10px; }
   </style>
 </head>
 <body>
 
-<h2>Estrai Valori da Screenshot</h2>
+<h2>OCR Parametri Clinici - Incolla o carica un’immagine</h2>
 
+<div id="dropArea">Trascina qui l'immagine o incollala (Ctrl+V)</div>
 <input type="file" id="imgInput" accept="image/*" />
-<div id="dropArea">Oppure incolla qui uno screenshot (Ctrl+V)</div>
-<button id="btnExtract">Estrai Valori</button>
+<br/>
+<button id="processBtn">Estrai valori</button>
 
-<div id="output"></div>
+<h3>Output copiabile (Tabulato):</h3>
+<pre id="output"></pre>
+<img id="imgPreview" />
 
 <script>
-  const NUM_VALORI_ATTESI = 11;
   let imageBlob = null;
-
-  const imgInput = document.getElementById('imgInput');
-  const btnExtract = document.getElementById('btnExtract');
   const output = document.getElementById('output');
+  const imgPreview = document.getElementById('imgPreview');
   const dropArea = document.getElementById('dropArea');
 
-  imgInput.addEventListener('change', () => {
-    if (imgInput.files.length > 0) {
-      imageBlob = imgInput.files[0];
-      dropArea.textContent = "Immagine caricata da file.";
-    }
+  function handleImage(file) {
+    imageBlob = file;
+    imgPreview.src = URL.createObjectURL(file);
+    output.textContent = '';
+  }
+
+  document.getElementById('imgInput').addEventListener('change', e => {
+    if (e.target.files.length) handleImage(e.target.files[0]);
   });
 
-  document.addEventListener('paste', (e) => {
+  // Drag and Drop
+  dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.style.borderColor = 'green'; });
+  dropArea.addEventListener('dragleave', () => dropArea.style.borderColor = '#ccc');
+  dropArea.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer.files.length) handleImage(e.dataTransfer.files[0]);
+  });
+
+  // Paste from clipboard
+  document.addEventListener('paste', e => {
     const items = e.clipboardData.items;
-    for (const item of items) {
-      if (item.type.indexOf('image') !== -1) {
-        imageBlob = item.getAsFile();
-        dropArea.textContent = "Immagine incollata dalla clipboard.";
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        const file = items[i].getAsFile();
+        handleImage(file);
         break;
       }
     }
   });
 
-  btnExtract.addEventListener('click', () => {
+  document.getElementById('processBtn').addEventListener('click', async () => {
     if (!imageBlob) {
-      output.textContent = "Nessuna immagine selezionata o incollata.";
+      alert('Inserisci un\'immagine prima.');
       return;
     }
 
-    output.textContent = "Elaborazione OCR...";
+    output.textContent = 'Estrazione in corso...';
 
-    Tesseract.recognize(imageBlob, 'ita')
-      .then(({ data: { text } }) => {
-        const numeri = text.match(/[\d]+([.,]\d+)?/g) || [];
+    try {
+      const result = await Tesseract.recognize(imageBlob, 'ita', { logger: m => console.log(m) });
+      const rawText = result.data.text;
 
-        const valori = numeri
-          .map(n => n.replace(',', '.'))
-          .slice(0, NUM_VALORI_ATTESI);
+      // Estrai tutti i numeri o sostituti, compresi i formati con virgola o punto
+      const numeri = (rawText.match(/[\d]{1,3}[.,]?\d{0,2}/g) || []).map(v => v.replace('.', ','));
 
-        // Aggiungi "-" se mancano valori
-        while (valori.length < NUM_VALORI_ATTESI) {
-          valori.push("-");
-        }
+      // Adatta alla tua logica: PA Max/Min, MAP, FC, Temp, Diuresi ecc.
+      let [pa1, pa2, map, fc, temp, diuresi] = ['-', '-', '-', '-', '-', '-'];
 
-        output.textContent = valori.join('\t');
-      })
-      .catch(err => {
-        output.textContent = 'Errore durante l\'OCR: ' + err.message;
-        console.error(err);
-      });
+      if (numeri.length >= 2) {
+        pa1 = numeri[0];
+        pa2 = numeri[1];
+      }
+      if (numeri.length >= 3) map = numeri[2];
+      if (numeri.length >= 4) fc = numeri[3];
+      if (numeri.length >= 5) temp = numeri[4];
+      if (numeri.length >= 6) diuresi = numeri[5];
+
+      // Output tabulato: PA in una cella con a capo i due valori
+      const tabulato = `${pa1}\n${pa2}\t${map}\t${fc}\t${temp}\t${diuresi}`;
+      output.textContent = tabulato;
+
+    } catch (err) {
+      output.textContent = 'Errore durante l\'OCR.';
+      console.error(err);
+    }
   });
 </script>
 
 </body>
 </html>
-
-
