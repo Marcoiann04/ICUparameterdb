@@ -6,10 +6,32 @@
   <title>OCR Valori Tabulati</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
   <style>
-    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
-    input, button, textarea { font-size: 1rem; width: 100%; margin-top: 10px; }
-    #output { white-space: pre; font-family: monospace; margin-top: 20px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; }
-    .hidden { display: none; }
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    input, button, textarea {
+      font-size: 1rem;
+      width: 100%;
+      margin-top: 10px;
+    }
+    #output {
+      white-space: pre;
+      font-family: monospace;
+      margin-top: 20px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background: #f9f9f9;
+    }
+    #dropArea {
+      border: 2px dashed #aaa;
+      padding: 20px;
+      text-align: center;
+      color: #777;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
@@ -17,47 +39,69 @@
 <h2>Estrai Valori da Screenshot</h2>
 
 <input type="file" id="imgInput" accept="image/*" />
+<div id="dropArea">Oppure incolla qui uno screenshot (Ctrl+V)</div>
 <button id="btnExtract">Estrai Valori</button>
 
 <div id="output"></div>
 
 <script>
-  document.getElementById('btnExtract').addEventListener('click', async () => {
-    const fileInput = document.getElementById('imgInput');
-    const output = document.getElementById('output');
-    output.textContent = "Estrazione in corso...";
+  const NUM_VALORI_ATTESI = 11;
+  let imageBlob = null;
 
-    if (!fileInput.files || fileInput.files.length === 0) {
-      output.textContent = "Seleziona un'immagine.";
+  const imgInput = document.getElementById('imgInput');
+  const btnExtract = document.getElementById('btnExtract');
+  const output = document.getElementById('output');
+  const dropArea = document.getElementById('dropArea');
+
+  imgInput.addEventListener('change', () => {
+    if (imgInput.files.length > 0) {
+      imageBlob = imgInput.files[0];
+      dropArea.textContent = "Immagine caricata da file.";
+    }
+  });
+
+  document.addEventListener('paste', (e) => {
+    const items = e.clipboardData.items;
+    for (const item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        imageBlob = item.getAsFile();
+        dropArea.textContent = "Immagine incollata dalla clipboard.";
+        break;
+      }
+    }
+  });
+
+  btnExtract.addEventListener('click', () => {
+    if (!imageBlob) {
+      output.textContent = "Nessuna immagine selezionata o incollata.";
       return;
     }
 
-    const file = fileInput.files[0];
+    output.textContent = "Elaborazione OCR...";
 
-    try {
-      const result = await Tesseract.recognize(file, 'ita', {
-        logger: m => console.log(m)
+    Tesseract.recognize(imageBlob, 'ita')
+      .then(({ data: { text } }) => {
+        const numeri = text.match(/[\d]+([.,]\d+)?/g) || [];
+
+        const valori = numeri
+          .map(n => n.replace(',', '.'))
+          .slice(0, NUM_VALORI_ATTESI);
+
+        // Aggiungi "-" se mancano valori
+        while (valori.length < NUM_VALORI_ATTESI) {
+          valori.push("-");
+        }
+
+        output.textContent = valori.join('\t');
+      })
+      .catch(err => {
+        output.textContent = 'Errore durante l\'OCR: ' + err.message;
+        console.error(err);
       });
-
-      const text = result.data.text;
-
-      // Estrai solo numeri (anche con virgola o punto)
-      const numeri = text.match(/[\d]+(?:[.,]\d+)?/g);
-      if (!numeri || numeri.length === 0) {
-        output.textContent = "Nessun numero rilevato.";
-        return;
-      }
-
-      const tabulati = numeri.map(n => n.replace(',', '.')).join('\t');
-      output.textContent = tabulati;
-
-    } catch (err) {
-      output.textContent = "Errore nell'elaborazione OCR: " + err.message;
-      console.error(err);
-    }
   });
 </script>
 
 </body>
 </html>
+
 
